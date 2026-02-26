@@ -2,3 +2,4 @@
 .kotlin
 .gradle
 app/build
+.claude/hooks/data

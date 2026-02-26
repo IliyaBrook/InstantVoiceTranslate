@@ -15,6 +15,7 @@ import com.example.instantvoicetranslate.service.TranslationService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -44,13 +45,15 @@ class MainViewModel @Inject constructor(
 
     private fun checkModelStatus() {
         viewModelScope.launch {
-            modelDownloader.ensureModelAvailable()
+            val lang = settingsRepository.settings.first().sourceLanguage
+            modelDownloader.ensureModelAvailable(lang)
         }
     }
 
     fun downloadModel() {
         viewModelScope.launch {
-            modelDownloader.ensureModelAvailable()
+            val lang = settings.value.sourceLanguage
+            modelDownloader.ensureModelAvailable(lang)
         }
     }
 
