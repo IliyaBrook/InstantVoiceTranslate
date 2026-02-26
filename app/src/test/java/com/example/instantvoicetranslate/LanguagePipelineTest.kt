@@ -79,7 +79,12 @@ class LanguagePipelineTest {
 
         val calls = mutableListOf<TranslateCall>()
 
-        override suspend fun translate(text: String, from: String, to: String): Result<String> {
+        override suspend fun translate(
+            text: String,
+            from: String,
+            to: String,
+            previousTranslation: String?
+        ): Result<String> {
             calls.add(TranslateCall(text, from, to))
             return Result.success("translated: $text")
         }
