@@ -125,18 +125,26 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
 
     override fun initializePunctuation(modelDir: String) {
         punctuation?.release()
+        val onnxFile = java.io.File("$modelDir/model.int8.onnx")
+        val bpeFile = java.io.File("$modelDir/bpe.vocab")
+        Log.i(TAG, "PUNCT: init from $modelDir | model.int8.onnx=${onnxFile.exists()} (${onnxFile.length()}) | bpe.vocab=${bpeFile.exists()} (${bpeFile.length()})")
+        if (!onnxFile.exists() || !bpeFile.exists()) {
+            Log.e(TAG, "PUNCT: Required files missing, skipping init")
+            punctuation = null
+            return
+        }
         try {
             val config = OnlinePunctuationConfig(
                 model = OnlinePunctuationModelConfig(
-                    cnnBilstm = "$modelDir/model.int8.onnx",
-                    bpeVocab = "$modelDir/bpe.vocab",
+                    cnnBilstm = onnxFile.absolutePath,
+                    bpeVocab = bpeFile.absolutePath,
                     numThreads = 2,
                 )
             )
             punctuation = OnlinePunctuation(config = config)
-            Log.i(TAG, "Punctuation model initialized from: $modelDir")
+            Log.i(TAG, "PUNCT: Initialized OK")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize punctuation model", e)
+            Log.e(TAG, "PUNCT: Init FAILED", e)
             punctuation = null
         }
     }

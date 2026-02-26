@@ -206,10 +206,11 @@ class ModelDownloader @Inject constructor(
             val dir = getPunctModelDir()
             dir.mkdirs()
 
-            Log.i(TAG, "Downloading punctuation model from $PUNCT_MODEL_URL")
+            Log.i(TAG, "PUNCT: Starting download from $PUNCT_MODEL_URL")
             val request = Request.Builder().url(PUNCT_MODEL_URL).build()
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
+                Log.e(TAG, "PUNCT: Download HTTP error: ${response.code}")
                 throw Exception("Punct model download failed: HTTP ${response.code}")
             }
 
@@ -217,36 +218,47 @@ class ModelDownloader @Inject constructor(
             FileOutputStream(tempFile).use { out ->
                 response.body.byteStream().use { it.copyTo(out) }
             }
-            Log.i(TAG, "Downloaded tar.bz2 (${tempFile.length()} bytes), extracting...")
+            Log.i(TAG, "PUNCT: tar.bz2 downloaded OK (${tempFile.length()} bytes)")
 
             extractTarBz2(tempFile, dir)
             tempFile.delete()
 
-            Log.i(TAG, "Punctuation model ready in ${dir.absolutePath}")
+            // Verify all files exist after extraction
+            val missing = PUNCT_MODEL_FILES.filter { !File(dir, it).exists() }
+            if (missing.isEmpty()) {
+                Log.i(TAG, "PUNCT: ALL files extracted OK: ${PUNCT_MODEL_FILES.joinToString()}")
+            } else {
+                Log.e(TAG, "PUNCT: MISSING files after extraction: $missing")
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Punctuation model download failed", e)
+            Log.e(TAG, "PUNCT: Download/extraction FAILED", e)
         }
     }
 
     private fun extractTarBz2(archive: File, targetDir: File) {
         val neededFiles = PUNCT_MODEL_FILES
+        Log.i(TAG, "PUNCT: Extracting tar.bz2, looking for: $neededFiles")
         FileInputStream(archive).use { fileInput ->
             BZip2CompressorInputStream(fileInput).use { bzInput ->
                 TarArchiveInputStream(bzInput).use { tarInput ->
                     var extracted = 0
+                    var entryIndex = 0
                     var entry = tarInput.nextEntry
                     while (entry != null && extracted < neededFiles.size) {
                         val fileName = File(entry.name).name
+                        Log.d(TAG, "PUNCT: tar entry #$entryIndex: ${entry.name} (${entry.size} bytes, dir=${entry.isDirectory})")
                         if (fileName in neededFiles && !entry.isDirectory) {
                             val outFile = File(targetDir, fileName)
                             FileOutputStream(outFile).use { out ->
                                 tarInput.copyTo(out)
                             }
                             extracted++
-                            Log.i(TAG, "Extracted: $fileName (${outFile.length()} bytes)")
+                            Log.i(TAG, "PUNCT: Extracted $fileName (${outFile.length()} bytes) [$extracted/${neededFiles.size}]")
                         }
+                        entryIndex++
                         entry = tarInput.nextEntry
                     }
+                    Log.i(TAG, "PUNCT: Extraction done. Extracted $extracted/${neededFiles.size} files")
                 }
             }
         }
