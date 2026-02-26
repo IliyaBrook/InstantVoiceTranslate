@@ -33,7 +33,7 @@ data class AppSettings(
 
 @Singleton
 class SettingsRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     companion object {
         private val KEY_AUDIO_SOURCE = stringPreferencesKey("audio_source")

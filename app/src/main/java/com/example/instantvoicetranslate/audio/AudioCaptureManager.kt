@@ -1,8 +1,6 @@
 package com.example.instantvoicetranslate.audio
 
-import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
@@ -10,8 +8,6 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.util.Log
-import androidx.annotation.RequiresPermission
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -25,9 +21,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AudioCaptureManager @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
+class AudioCaptureManager @Inject constructor() {
     companion object {
         private const val TAG = "AudioCaptureManager"
         const val SAMPLE_RATE = 16000

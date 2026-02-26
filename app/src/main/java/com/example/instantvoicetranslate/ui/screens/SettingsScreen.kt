@@ -162,7 +162,7 @@ private fun LanguageSelector(
         Spacer(modifier = Modifier.height(4.dp))
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             val displayLangs = languages.take(4) // Show only first 4 to fit
-            displayLangs.forEachIndexed { index, (code, name) ->
+            displayLangs.forEachIndexed { index, (code, _) ->
                 SegmentedButton(
                     selected = selected == code,
                     onClick = { onSelect(code) },

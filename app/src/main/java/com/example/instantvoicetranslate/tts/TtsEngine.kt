@@ -23,7 +23,7 @@ import javax.inject.Singleton
 
 @Singleton
 class TtsEngine @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "TtsEngine"
@@ -51,7 +51,7 @@ class TtsEngine @Inject constructor(
                     result == TextToSpeech.LANG_NOT_SUPPORTED
                 ) {
                     Log.w(TAG, "Language $locale not supported, trying English")
-                    tts?.setLanguage(Locale.US)
+                    tts?.language = Locale.US
                 }
 
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -109,7 +109,7 @@ class TtsEngine @Inject constructor(
     }
 
     fun setLanguage(locale: Locale) {
-        tts?.setLanguage(locale)
+        tts?.language = locale
     }
 
     fun release() {

@@ -25,7 +25,7 @@ sealed class ModelStatus {
 
 @Singleton
 class ModelDownloader @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "ModelDownloader"
@@ -117,8 +117,6 @@ class ModelDownloader @Inject constructor(
                         val buffer = ByteArray(8192)
                         var bytesRead: Int
                         var fileDownloaded = 0L
-                        val contentLength = body.contentLength().takeIf { it > 0 } ?: file.approxSize
-
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             fileDownloaded += bytesRead

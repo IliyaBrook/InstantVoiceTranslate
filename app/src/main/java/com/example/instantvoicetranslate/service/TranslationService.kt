@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -178,16 +179,26 @@ class TranslationService : Service() {
     private fun startForegroundNotification() {
         val notification = buildNotification(paused = false)
 
-        // Only request mediaProjection type when system audio is being used
-        val serviceType = when (currentAudioSource) {
-            AudioCaptureManager.Source.MICROPHONE ->
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            AudioCaptureManager.Source.SYSTEM_AUDIO ->
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val serviceType = when (currentAudioSource) {
+                AudioCaptureManager.Source.MICROPHONE ->
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                AudioCaptureManager.Source.SYSTEM_AUDIO ->
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
+            startForeground(NOTIFICATION_ID, notification, serviceType)
+        } else {
+            // API 29: FOREGROUND_SERVICE_TYPE_MICROPHONE not available
+            if (currentAudioSource == AudioCaptureManager.Source.SYSTEM_AUDIO) {
+                startForeground(
+                    NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         }
-
-        startForeground(NOTIFICATION_ID, notification, serviceType)
     }
 
     private fun updateNotification(paused: Boolean) {
