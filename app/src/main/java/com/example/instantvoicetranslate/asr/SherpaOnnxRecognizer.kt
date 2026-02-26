@@ -1,6 +1,7 @@
 package com.example.instantvoicetranslate.asr
 
 import android.util.Log
+import com.example.instantvoicetranslate.data.ModelDownloader
 import com.k2fsa.sherpa.onnx.EndpointConfig
 import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -42,24 +43,30 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
     private val _isReady = MutableStateFlow(false)
     override val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
 
+    private val _currentLanguage = MutableStateFlow("")
+    override val currentLanguage: StateFlow<String> = _currentLanguage.asStateFlow()
+
     private var recognizer: OnlineRecognizer? = null
     private var recognitionScope: CoroutineScope? = null
     private var recognitionJob: Job? = null
 
-    override suspend fun initialize(modelDir: String): Unit = withContext(Dispatchers.IO) {
+    override suspend fun initialize(modelDir: String, language: String): Unit = withContext(Dispatchers.IO) {
         try {
-            Log.i(TAG, "Initializing with model dir: $modelDir")
+            val langConfig = ModelDownloader.getLanguageConfig(language)
+                ?: throw IllegalArgumentException("No ASR model config for language: $language")
+
+            Log.i(TAG, "Initializing for language '$language' with model dir: $modelDir")
 
             val config = OnlineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
                 modelConfig = OnlineModelConfig(
                     transducer = OnlineTransducerModelConfig(
-                        encoder = "$modelDir/encoder-epoch-99-avg-1.int8.onnx",
-                        decoder = "$modelDir/decoder-epoch-99-avg-1.int8.onnx",
-                        joiner = "$modelDir/joiner-epoch-99-avg-1.int8.onnx",
+                        encoder = "$modelDir/${langConfig.encoderFile}",
+                        decoder = "$modelDir/${langConfig.decoderFile}",
+                        joiner = "$modelDir/${langConfig.joinerFile}",
                     ),
                     tokens = "$modelDir/tokens.txt",
-                    modelType = "zipformer",
+                    modelType = langConfig.modelType,
                     numThreads = 4,
                     debug = false,
                     provider = "cpu",
@@ -86,10 +93,11 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
             )
 
             recognizer = OnlineRecognizer(config = config)
+            _currentLanguage.value = language
             _isReady.value = true
-            Log.i(TAG, "Recognizer initialized successfully")
+            Log.i(TAG, "Recognizer initialized successfully for language: $language")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize recognizer", e)
+            Log.e(TAG, "Failed to initialize recognizer for language: $language", e)
             _isReady.value = false
             throw e
         }
@@ -170,5 +178,6 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         recognizer?.release()
         recognizer = null
         _isReady.value = false
+        _currentLanguage.value = ""
     }
 }

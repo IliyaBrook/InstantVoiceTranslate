@@ -84,16 +84,29 @@ class TranslationService : Service() {
             try {
                 val settings = settingsRepository.settings.first()
 
-                // Ensure model is ready
-                if (!modelDownloader.isModelReady()) {
-                    uiState.setError("Model not downloaded")
-                    stopSelf()
-                    return@launch
+                // Ensure model for source language is ready
+                val srcLang = settings.sourceLanguage
+                if (!modelDownloader.isModelReady(srcLang)) {
+                    Log.i(TAG, "Model for '$srcLang' not ready, downloading...")
+                    modelDownloader.ensureModelAvailable(srcLang)
+                    if (!modelDownloader.isModelReady(srcLang)) {
+                        uiState.setError("Model for $srcLang not downloaded")
+                        stopSelf()
+                        return@launch
+                    }
                 }
 
-                // Initialize recognizer if needed
-                if (!speechRecognizer.isReady.value) {
-                    speechRecognizer.initialize(modelDownloader.modelDir.absolutePath)
+                // Initialize recognizer if needed, or reinitialize if language changed
+                val needsInit = !speechRecognizer.isReady.value ||
+                        speechRecognizer.currentLanguage.value != srcLang
+                if (needsInit) {
+                    if (speechRecognizer.isReady.value) {
+                        speechRecognizer.release()
+                    }
+                    speechRecognizer.initialize(
+                        modelDownloader.getModelDir(srcLang).absolutePath,
+                        srcLang
+                    )
                 }
 
                 // Initialize TTS

@@ -23,23 +23,126 @@ sealed class ModelStatus {
     data class Error(val message: String) : ModelStatus()
 }
 
+data class LanguageModelConfig(
+    val dirName: String,
+    val baseUrl: String,
+    val files: List<ModelDownloader.ModelFile>,
+    val modelType: String,
+    val encoderFile: String,
+    val decoderFile: String,
+    val joinerFile: String,
+)
+
 @Singleton
 class ModelDownloader @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "ModelDownloader"
-        private const val MODEL_DIR_NAME = "sherpa-onnx-streaming-zipformer-en-2023-06-21"
         private const val OLD_MODEL_DIR_NAME = "sherpa-onnx-zipformer-en-20M"
-        private const val BASE_URL =
-            "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main"
 
-        val MODEL_FILES = listOf(
-            ModelFile("encoder-epoch-99-avg-1.int8.onnx", 188_000_000L),
-            ModelFile("decoder-epoch-99-avg-1.int8.onnx", 539_000L),
-            ModelFile("joiner-epoch-99-avg-1.int8.onnx", 259_000L),
-            ModelFile("tokens.txt", 5_050L),
+        val LANGUAGE_MODELS: Map<String, LanguageModelConfig> = mapOf(
+            "en" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-en-2023-06-21",
+                baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main",
+                files = listOf(
+                    ModelFile("encoder-epoch-99-avg-1.int8.onnx", 188_000_000L),
+                    ModelFile("decoder-epoch-99-avg-1.int8.onnx", 539_000L),
+                    ModelFile("joiner-epoch-99-avg-1.int8.onnx", 259_000L),
+                    ModelFile("tokens.txt", 5_050L),
+                ),
+                modelType = "zipformer",
+                encoderFile = "encoder-epoch-99-avg-1.int8.onnx",
+                decoderFile = "decoder-epoch-99-avg-1.int8.onnx",
+                joinerFile = "joiner-epoch-99-avg-1.int8.onnx",
+            ),
+            "ru" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-small-ru-vosk-int8-2025-08-16",
+                baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-int8-2025-08-16/resolve/main",
+                files = listOf(
+                    ModelFile("encoder.int8.onnx", 26_200_000L),
+                    ModelFile("decoder.onnx", 2_090_000L),
+                    ModelFile("joiner.int8.onnx", 259_000L),
+                    ModelFile("tokens.txt", 6_390L),
+                ),
+                modelType = "zipformer2",
+                encoderFile = "encoder.int8.onnx",
+                decoderFile = "decoder.onnx",
+                joinerFile = "joiner.int8.onnx",
+            ),
+            "es" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06",
+                baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06/resolve/main",
+                files = listOf(
+                    ModelFile("encoder.onnx", 155_000_000L),
+                    ModelFile("decoder.onnx", 617_000L),
+                    ModelFile("joiner.onnx", 337_000L),
+                    ModelFile("tokens.txt", 6_390L),
+                ),
+                modelType = "zipformer2",
+                encoderFile = "encoder.onnx",
+                decoderFile = "decoder.onnx",
+                joinerFile = "joiner.onnx",
+            ),
+            "de" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06",
+                baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/main",
+                files = listOf(
+                    ModelFile("encoder.onnx", 70_100_000L),
+                    ModelFile("decoder.onnx", 617_000L),
+                    ModelFile("joiner.onnx", 337_000L),
+                    ModelFile("tokens.txt", 5_610L),
+                ),
+                modelType = "zipformer2",
+                encoderFile = "encoder.onnx",
+                decoderFile = "decoder.onnx",
+                joinerFile = "joiner.onnx",
+            ),
+            "fr" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06",
+                baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06/resolve/main",
+                files = listOf(
+                    ModelFile("encoder.onnx", 70_100_000L),
+                    ModelFile("decoder.onnx", 617_000L),
+                    ModelFile("joiner.onnx", 337_000L),
+                    ModelFile("tokens.txt", 5_420L),
+                ),
+                modelType = "zipformer2",
+                encoderFile = "encoder.onnx",
+                decoderFile = "decoder.onnx",
+                joinerFile = "joiner.onnx",
+            ),
+            "zh" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+                baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main",
+                files = listOf(
+                    ModelFile("encoder.int8.onnx", 161_000_000L),
+                    ModelFile("decoder.onnx", 5_170_000L),
+                    ModelFile("joiner.int8.onnx", 1_030_000L),
+                    ModelFile("tokens.txt", 20_600L),
+                ),
+                modelType = "zipformer2",
+                encoderFile = "encoder.int8.onnx",
+                decoderFile = "decoder.onnx",
+                joinerFile = "joiner.int8.onnx",
+            ),
+            "ko" to LanguageModelConfig(
+                dirName = "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+                baseUrl = "https://huggingface.co/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/main",
+                files = listOf(
+                    ModelFile("encoder-epoch-99-avg-1.int8.onnx", 127_000_000L),
+                    ModelFile("decoder-epoch-99-avg-1.int8.onnx", 2_840_000L),
+                    ModelFile("joiner-epoch-99-avg-1.int8.onnx", 2_580_000L),
+                    ModelFile("tokens.txt", 60_200L),
+                ),
+                modelType = "zipformer",
+                encoderFile = "encoder-epoch-99-avg-1.int8.onnx",
+                decoderFile = "decoder-epoch-99-avg-1.int8.onnx",
+                joinerFile = "joiner-epoch-99-avg-1.int8.onnx",
+            ),
         )
+
+        fun getLanguageConfig(language: String): LanguageModelConfig? = LANGUAGE_MODELS[language]
     }
 
     data class ModelFile(val name: String, val approxSize: Long)
@@ -53,22 +156,29 @@ class ModelDownloader @Inject constructor(
         .followRedirects(true)
         .build()
 
-    val modelDir: File
-        get() = File(context.filesDir, MODEL_DIR_NAME)
-
-    fun isModelReady(): Boolean {
-        val dir = modelDir
-        if (!dir.exists()) return false
-        return MODEL_FILES.all { File(dir, it.name).exists() }
+    fun getModelDir(language: String): File {
+        val config = LANGUAGE_MODELS[language]
+            ?: LANGUAGE_MODELS["en"]!!
+        return File(context.filesDir, config.dirName)
     }
 
-    suspend fun ensureModelAvailable() {
+    /** Backward-compatible: checks English model. */
+    fun isModelReady(): Boolean = isModelReady("en")
+
+    fun isModelReady(language: String): Boolean {
+        val config = LANGUAGE_MODELS[language] ?: return false
+        val dir = File(context.filesDir, config.dirName)
+        if (!dir.exists()) return false
+        return config.files.all { File(dir, it.name).exists() }
+    }
+
+    suspend fun ensureModelAvailable(language: String = "en") {
         cleanupOldModel()
-        if (isModelReady()) {
+        if (isModelReady(language)) {
             _status.value = ModelStatus.Ready
             return
         }
-        downloadModel()
+        downloadModel(language)
     }
 
     private fun cleanupOldModel() {
@@ -79,15 +189,18 @@ class ModelDownloader @Inject constructor(
         }
     }
 
-    private suspend fun downloadModel() = withContext(Dispatchers.IO) {
+    private suspend fun downloadModel(language: String) = withContext(Dispatchers.IO) {
+        val config = LANGUAGE_MODELS[language]
+            ?: throw IllegalArgumentException("No model available for language: $language")
+
         try {
-            val dir = modelDir
+            val dir = File(context.filesDir, config.dirName)
             dir.mkdirs()
 
-            val totalSize = MODEL_FILES.sumOf { it.approxSize }
+            val totalSize = config.files.sumOf { it.approxSize }
             var downloadedSoFar = 0L
 
-            for (file in MODEL_FILES) {
+            for (file in config.files) {
                 val target = File(dir, file.name)
                 if (target.exists() && target.length() > 0) {
                     downloadedSoFar += file.approxSize
@@ -99,7 +212,7 @@ class ModelDownloader @Inject constructor(
                     currentFile = file.name
                 )
 
-                val url = "$BASE_URL/${file.name}"
+                val url = "${config.baseUrl}/${file.name}"
                 Log.i(TAG, "Downloading ${file.name} from $url")
 
                 val request = Request.Builder().url(url).build()
@@ -109,7 +222,7 @@ class ModelDownloader @Inject constructor(
                     throw Exception("Failed to download ${file.name}: HTTP ${response.code}")
                 }
 
-                val body = response.body ?: throw Exception("Empty response for ${file.name}")
+                val body = response.body
                 val tempFile = File(dir, "${file.name}.tmp")
 
                 FileOutputStream(tempFile).use { output ->
@@ -135,15 +248,11 @@ class ModelDownloader @Inject constructor(
             }
 
             _status.value = ModelStatus.Ready
-            Log.i(TAG, "All model files ready in ${dir.absolutePath}")
+            Log.i(TAG, "All model files ready for '$language' in ${dir.absolutePath}")
         } catch (e: Exception) {
-            Log.e(TAG, "Model download failed", e)
+            Log.e(TAG, "Model download failed for '$language'", e)
             _status.value = ModelStatus.Error(e.message ?: "Unknown error")
         }
     }
 
-    fun deleteModel() {
-        modelDir.deleteRecursively()
-        _status.value = ModelStatus.NotDownloaded
-    }
 }

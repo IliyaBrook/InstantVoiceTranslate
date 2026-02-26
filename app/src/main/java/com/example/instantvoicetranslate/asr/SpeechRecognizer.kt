@@ -14,8 +14,11 @@ interface SpeechRecognizer {
     /** Whether the recognizer model is loaded and ready. */
     val isReady: StateFlow<Boolean>
 
-    /** Load the model from the given directory. */
-    suspend fun initialize(modelDir: String)
+    /** The language the recognizer is currently configured for (ISO 639-1). */
+    val currentLanguage: StateFlow<String>
+
+    /** Load the model from the given directory for the specified source language. */
+    suspend fun initialize(modelDir: String, language: String = "en")
 
     /** Start recognition, consuming audio from the given Flow. */
     fun startRecognition(audioFlow: Flow<FloatArray>)
