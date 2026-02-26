@@ -85,8 +85,10 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.9.7")
 
-    // Hilt DI
+    // Hilt DI — pinned at 2.56.2, Hilt 2.59.2 requires AGP 9.0+
+    //noinspection GradleDependency
     implementation("com.google.dagger:hilt-android:2.56.2")
+    //noinspection GradleDependency
     ksp("com.google.dagger:hilt-android-compiler:2.56.2")
     implementation("androidx.hilt:hilt-navigation-compose:1.3.0")
     implementation("androidx.hilt:hilt-lifecycle-viewmodel-compose:1.3.0")
@@ -102,6 +104,9 @@ dependencies {
 
     // OkHttp for translation API + model downloads
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
+
+    // Apache Commons Compress for tar.bz2 extraction (punctuation model)
+    implementation("org.apache.commons:commons-compress:1.28.0")
 
     // Unit tests
     testImplementation("junit:junit:4.13.2")

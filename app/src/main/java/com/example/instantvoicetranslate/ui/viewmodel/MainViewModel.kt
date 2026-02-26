@@ -92,7 +92,22 @@ class MainViewModel @Inject constructor(
                 }
             }
 
-            // 3. Pre-initialize TTS engine
+            // 3. Pre-initialize punctuation model (English only, ~7MB)
+            if (srcLang == "en") {
+                try {
+                    modelDownloader.ensurePunctModelAvailable()
+                    if (modelDownloader.isPunctModelReady()) {
+                        speechRecognizer.initializePunctuation(
+                            modelDownloader.getPunctModelDir().absolutePath
+                        )
+                        Log.i(TAG, "Punctuation model pre-loaded")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Punctuation model not available, continuing without it", e)
+                }
+            }
+
+            // 4. Pre-initialize TTS engine
             val ttsLocale = Locale.forLanguageTag(currentSettings.targetLanguage)
             if (!ttsEngine.isInitialized.value) {
                 Log.i(TAG, "Pre-initializing TTS for locale: $ttsLocale")

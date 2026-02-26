@@ -10,7 +10,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -143,6 +146,11 @@ class ModelDownloader @Inject constructor(
         )
 
         fun getLanguageConfig(language: String): LanguageModelConfig? = LANGUAGE_MODELS[language]
+
+        const val PUNCT_MODEL_DIR = "sherpa-onnx-online-punct-en-2024-08-06"
+        private const val PUNCT_MODEL_URL =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-online-punct-en-2024-08-06.tar.bz2"
+        private val PUNCT_MODEL_FILES = setOf("model.int8.onnx", "bpe.vocab")
     }
 
     data class ModelFile(val name: String, val approxSize: Long)
@@ -179,6 +187,69 @@ class ModelDownloader @Inject constructor(
             return
         }
         downloadModel(language)
+    }
+
+    fun getPunctModelDir(): File = File(context.filesDir, PUNCT_MODEL_DIR)
+
+    fun isPunctModelReady(): Boolean {
+        val dir = getPunctModelDir()
+        return dir.exists() && PUNCT_MODEL_FILES.all { File(dir, it).exists() }
+    }
+
+    suspend fun ensurePunctModelAvailable() {
+        if (isPunctModelReady()) return
+        downloadPunctModel()
+    }
+
+    private suspend fun downloadPunctModel() = withContext(Dispatchers.IO) {
+        try {
+            val dir = getPunctModelDir()
+            dir.mkdirs()
+
+            Log.i(TAG, "Downloading punctuation model from $PUNCT_MODEL_URL")
+            val request = Request.Builder().url(PUNCT_MODEL_URL).build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                throw Exception("Punct model download failed: HTTP ${response.code}")
+            }
+
+            val tempFile = File(context.cacheDir, "punct-model.tar.bz2")
+            FileOutputStream(tempFile).use { out ->
+                response.body.byteStream().use { it.copyTo(out) }
+            }
+            Log.i(TAG, "Downloaded tar.bz2 (${tempFile.length()} bytes), extracting...")
+
+            extractTarBz2(tempFile, dir)
+            tempFile.delete()
+
+            Log.i(TAG, "Punctuation model ready in ${dir.absolutePath}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Punctuation model download failed", e)
+        }
+    }
+
+    private fun extractTarBz2(archive: File, targetDir: File) {
+        val neededFiles = PUNCT_MODEL_FILES
+        FileInputStream(archive).use { fileInput ->
+            BZip2CompressorInputStream(fileInput).use { bzInput ->
+                TarArchiveInputStream(bzInput).use { tarInput ->
+                    var extracted = 0
+                    var entry = tarInput.nextEntry
+                    while (entry != null && extracted < neededFiles.size) {
+                        val fileName = File(entry.name).name
+                        if (fileName in neededFiles && !entry.isDirectory) {
+                            val outFile = File(targetDir, fileName)
+                            FileOutputStream(outFile).use { out ->
+                                tarInput.copyTo(out)
+                            }
+                            extracted++
+                            Log.i(TAG, "Extracted: $fileName (${outFile.length()} bytes)")
+                        }
+                        entry = tarInput.nextEntry
+                    }
+                }
+            }
+        }
     }
 
     private fun cleanupOldModel() {

@@ -28,6 +28,9 @@ import javax.inject.Singleton
  * appended to the Android TTS internal queue (QUEUE_ADD) so nothing is lost.
  * The queue processor waits for each utterance to finish before dequeuing
  * the next one, keeping [isSpeaking] accurate for feedback-loop prevention.
+ *
+ * Long translated segments are automatically split into individual sentences
+ * so that TTS can begin speaking the first sentence while synthesizing the rest.
  */
 @Singleton
 class TtsEngine @Inject constructor(
@@ -36,6 +39,13 @@ class TtsEngine @Inject constructor(
     companion object {
         private const val TAG = "TtsEngine"
         private const val UTTERANCE_TIMEOUT_MS = 30_000L
+
+        /**
+         * Matches sentence-ending punctuation (.!?) followed by whitespace.
+         * Uses a fixed-length lookbehind (single char) which is safe for Java regex.
+         */
+        private val SENTENCE_SPLIT_REGEX =
+            Regex("""(?<=[.!?])\s+""")
     }
 
     private val _isSpeaking = MutableStateFlow(false)
@@ -106,9 +116,17 @@ class TtsEngine @Inject constructor(
         }
     }
 
+    /**
+     * Splits text into sentences and enqueues each one separately.
+     * This allows Android TTS to begin speaking the first sentence
+     * while synthesizing subsequent ones, reducing perceived latency.
+     */
     fun speak(text: String) {
         if (text.isBlank()) return
-        speechQueue.trySend(text)
+        val sentences = splitIntoSentences(text)
+        for (sentence in sentences) {
+            speechQueue.trySend(sentence)
+        }
     }
 
     fun stop() {
@@ -154,5 +172,17 @@ class TtsEngine @Inject constructor(
             Log.w(TAG, "TTS utterance timed out: $id")
             _isSpeaking.value = false
         }
+    }
+
+    /**
+     * Splits text into individual sentences by sentence-ending punctuation.
+     * Returns a list with at least one element (the original text if no split points found).
+     */
+    private fun splitIntoSentences(text: String): List<String> {
+        val sentences = SENTENCE_SPLIT_REGEX.split(text)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        return sentences.ifEmpty { listOf(text) }
     }
 }

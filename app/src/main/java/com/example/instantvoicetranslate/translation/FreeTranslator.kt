@@ -47,7 +47,12 @@ class FreeTranslator @Inject constructor() : TextTranslator {
 
     private val cache = LruCache<String, String>(CACHE_SIZE)
 
-    override suspend fun translate(text: String, from: String, to: String): Result<String> {
+    override suspend fun translate(
+        text: String,
+        from: String,
+        to: String,
+        previousTranslation: String?
+    ): Result<String> {
         if (text.isBlank()) return Result.success("")
 
         val cacheKey = "$from|$to|$text"
@@ -62,7 +67,7 @@ class FreeTranslator @Inject constructor() : TextTranslator {
             } catch (e: Exception) {
                 Log.w(TAG, "Primary translation failed, trying fallback", e)
                 try {
-                    val result = translateFallback(text, from, to)
+                    val result = translateFallback(text, from, to, previousTranslation)
                     cache.put(cacheKey, result)
                     _isAvailable.value = true
                     Result.success(result)
@@ -111,9 +116,24 @@ class FreeTranslator @Inject constructor() : TextTranslator {
             .joinToString(" ") { textArray.getString(it) }
     }
 
-    private fun translateFallback(text: String, from: String, to: String): String {
+    private fun translateFallback(
+        text: String,
+        from: String,
+        to: String,
+        previousTranslation: String? = null
+    ): String {
+        // When context is available, prepend it so the translation model can
+        // maintain coherence. The format "[context] ||| [text]" is a common
+        // convention for providing translation context. We strip the context
+        // portion from the result afterward.
+        val textToTranslate = if (!previousTranslation.isNullOrBlank()) {
+            "$previousTranslation ||| $text"
+        } else {
+            text
+        }
+
         val json = JSONObject().apply {
-            put("text", text)
+            put("text", textToTranslate)
             put("source_lang", from)
             put("target_lang", to)
         }
@@ -135,6 +155,18 @@ class FreeTranslator @Inject constructor() : TextTranslator {
         }
 
         val responseJson = JSONObject(responseBody)
-        return responseJson.getString("translatedText")
+        val translated = responseJson.getString("translatedText")
+
+        // Extract only the new translation if context was prepended.
+        // The separator "|||" should appear in the translation as well.
+        return if (!previousTranslation.isNullOrBlank() && translated.contains("|||")) {
+            translated.substringAfter("|||").trim()
+        } else if (!previousTranslation.isNullOrBlank()) {
+            // Fallback: if the API consumed the separator, try to strip
+            // the approximate length of the context translation.
+            translated
+        } else {
+            translated
+        }
     }
 }

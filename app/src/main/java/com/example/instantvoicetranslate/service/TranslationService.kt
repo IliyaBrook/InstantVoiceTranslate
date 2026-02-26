@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
@@ -66,8 +67,22 @@ class TranslationService : Service() {
      * even when translated in parallel.
      */
     private val segmentCounter = AtomicLong(0)
-    /** The sequence number of the last segment sent to TTS. */
-    @Volatile private var lastSpokenSeqNum = -1L
+
+    /**
+     * Ordered delivery buffer for TTS.
+     *
+     * Translations complete out-of-order (parallel HTTP), but TTS must
+     * receive them sequentially. Completed translations are stored here
+     * keyed by their sequence number. A flush routine sends all
+     * consecutive ready segments to TTS starting from [nextTtsSeqNum].
+     */
+    private val translationBuffer = ConcurrentHashMap<Long, String>()
+    private val nextTtsSeqNum = AtomicLong(0)
+    private val ttsFlushLock = Any()
+
+    /** Last translated segment, used as context for the next translation. */
+    @Volatile
+    private var lastTranslatedSegment: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -94,7 +109,9 @@ class TranslationService : Service() {
 
         // Reset ordering state for this session
         segmentCounter.set(0)
-        lastSpokenSeqNum = -1L
+        translationBuffer.clear()
+        nextTtsSeqNum.set(0)
+        lastTranslatedSegment = null
 
         pipelineJob?.cancel()
         pipelineJob = serviceScope.launch {
@@ -124,6 +141,12 @@ class TranslationService : Service() {
                         modelDownloader.getModelDir(srcLang).absolutePath,
                         srcLang
                     )
+                    // Initialize punctuation model if available
+                    if (srcLang == "en" && modelDownloader.isPunctModelReady()) {
+                        speechRecognizer.initializePunctuation(
+                            modelDownloader.getPunctModelDir().absolutePath
+                        )
+                    }
                 }
 
                 // Initialize TTS
@@ -174,25 +197,25 @@ class TranslationService : Service() {
                         val srcLang = settings.sourceLanguage
                         val tgtLang = settings.targetLanguage
 
+                        // Capture context snapshot before launching parallel coroutine
+                        val contextSegment = lastTranslatedSegment
+
                         // Launch translation in a separate coroutine (parallel)
                         launch {
                             translationSemaphore.acquire()
                             try {
-                                val result = translator.translate(segment, srcLang, tgtLang)
+                                val result = translator.translate(
+                                    segment, srcLang, tgtLang, contextSegment
+                                )
                                 result.onSuccess { translated ->
+                                    lastTranslatedSegment = translated
                                     uiState.updateTranslated(translated)
                                     if (settings.autoSpeak) {
-                                        // Only speak if this is not an outdated segment.
-                                        // If newer segments already spoke, skip TTS for this one
-                                        // to avoid speaking stale text after fresh text.
-                                        synchronized(this@TranslationService) {
-                                            if (seqNum > lastSpokenSeqNum) {
-                                                lastSpokenSeqNum = seqNum
-                                                ttsEngine.speak(translated)
-                                            } else {
-                                                Log.d(TAG, "Skipping TTS for stale segment #$seqNum (last spoken: $lastSpokenSeqNum)")
-                                            }
-                                        }
+                                        // Buffer translation and flush in order.
+                                        // Parallel translations finish out-of-order,
+                                        // but TTS must receive them sequentially.
+                                        translationBuffer[seqNum] = translated
+                                        flushTtsBuffer()
                                     }
                                 }.onFailure { error ->
                                     Log.e(TAG, "Translation failed for segment #$seqNum", error)
@@ -212,12 +235,31 @@ class TranslationService : Service() {
         }
     }
 
+    /**
+     * Send all consecutive ready translations to TTS in order.
+     *
+     * Example: if nextTtsSeqNum=0 and buffer has {0→"a", 2→"c"},
+     * this sends "a" to TTS, advances to 1, then stops (1 not ready yet).
+     * When segment 1 arrives later, it sends "b" then "c" in one flush.
+     */
+    private fun flushTtsBuffer() {
+        synchronized(ttsFlushLock) {
+            while (true) {
+                val next = nextTtsSeqNum.get()
+                val text = translationBuffer.remove(next) ?: break
+                ttsEngine.speak(text)
+                nextTtsSeqNum.incrementAndGet()
+            }
+        }
+    }
+
     private fun stopPipeline() {
         pipelineJob?.cancel()
         pipelineJob = null
         speechRecognizer.stopRecognition()
         audioCaptureManager.stopCapture()
         ttsEngine.stop()
+        translationBuffer.clear()
         uiState.setRunning(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

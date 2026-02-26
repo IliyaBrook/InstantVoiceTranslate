@@ -8,6 +8,9 @@ import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
 import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OnlinePunctuation
+import com.k2fsa.sherpa.onnx.OnlinePunctuationConfig
+import com.k2fsa.sherpa.onnx.OnlinePunctuationModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +35,18 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
     companion object {
         private const val TAG = "SherpaOnnxRecognizer"
         private const val SAMPLE_RATE = 16000
+
+        /** Emit a segment early when partial text exceeds this word count. */
+        private const val MAX_WORDS_BEFORE_SPLIT = 18
+
+        /** Minimum word count before we consider mid-sentence splitting by punctuation. */
+        private const val MIN_WORDS_FOR_PUNCT_SPLIT = 8
+
+        /** Regex matching sentence-ending punctuation (possibly followed by quotes). */
+        private val SENTENCE_END_REGEX = Regex("""[.!?]["')\]]*\s""")
+
+        /** Punctuation characters suitable for mid-sentence splitting (comma, semicolon, colon, dash). */
+        private val MID_PUNCT_CHARS = charArrayOf(',', ';', ':', '\u2014', '\u2013')
     }
 
     private val _partialText = MutableStateFlow("")
@@ -47,6 +62,7 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
     override val currentLanguage: StateFlow<String> = _currentLanguage.asStateFlow()
 
     private var recognizer: OnlineRecognizer? = null
+    private var punctuation: OnlinePunctuation? = null
     private var recognitionScope: CoroutineScope? = null
     private var recognitionJob: Job? = null
 
@@ -107,6 +123,28 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         }
     }
 
+    override fun initializePunctuation(modelDir: String) {
+        punctuation?.release()
+        try {
+            val config = OnlinePunctuationConfig(
+                model = OnlinePunctuationModelConfig(
+                    cnnBilstm = "$modelDir/model.int8.onnx",
+                    bpeVocab = "$modelDir/bpe.vocab",
+                    numThreads = 2,
+                )
+            )
+            punctuation = OnlinePunctuation(config = config)
+            Log.i(TAG, "Punctuation model initialized from: $modelDir")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize punctuation model", e)
+            punctuation = null
+        }
+    }
+
+    private fun applyPunctuation(text: String): String {
+        return punctuation?.addPunctuation(text) ?: text
+    }
+
     override fun startRecognition(audioFlow: Flow<FloatArray>) {
         val rec = recognizer ?: run {
             Log.e(TAG, "Recognizer not initialized")
@@ -120,42 +158,40 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
 
         recognitionJob = scope.launch {
             val stream = rec.createStream()
-            var accumulatedText = ""
+            var emittedText = ""
 
             try {
                 audioFlow.collect { samples ->
-                    // Feed audio to stream
                     stream.acceptWaveform(samples, sampleRate = SAMPLE_RATE)
 
-                    // Decode all available frames
                     while (rec.isReady(stream)) {
                         rec.decode(stream)
                     }
 
-                    // Get current result
                     val result = rec.getResult(stream)
                     val currentText = result.text.trim()
 
-                    // Update partial text (accumulated + current partial)
+                    val fullText = combineText(emittedText, currentText)
+
                     if (currentText.isNotBlank()) {
-                        _partialText.value = if (accumulatedText.isBlank()) {
-                            currentText
-                        } else {
-                            "$accumulatedText $currentText"
-                        }
+                        _partialText.value = fullText
                     }
 
-                    // Check for endpoint
-                    if (rec.isEndpoint(stream)) {
-                        if (currentText.isNotBlank()) {
-                            val finalSegment = if (accumulatedText.isBlank()) {
-                                currentText
-                            } else {
-                                "$accumulatedText $currentText"
-                            }
-                            Log.i(TAG, "Endpoint detected, segment: $finalSegment")
-                            _recognizedSegments.emit(finalSegment)
-                            accumulatedText = ""
+                    // --- Smart segmentation: try to emit early before Sherpa endpoint ---
+                    val earlySegment = tryExtractEarlySegment(fullText)
+                    if (earlySegment != null) {
+                        val punctuated = applyPunctuation(earlySegment.emitted)
+                        Log.i(TAG, "Early segment emitted: $punctuated")
+                        _recognizedSegments.emit(punctuated)
+                        emittedText = earlySegment.remainder
+                        _partialText.value = earlySegment.remainder
+                        rec.reset(stream)
+                    } else if (rec.isEndpoint(stream)) {
+                        if (fullText.isNotBlank()) {
+                            val punctuated = applyPunctuation(fullText)
+                            Log.i(TAG, "Endpoint detected, segment: $punctuated")
+                            _recognizedSegments.emit(punctuated)
+                            emittedText = ""
                             _partialText.value = ""
                         }
                         rec.reset(stream)
@@ -181,7 +217,65 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         stopRecognition()
         recognizer?.release()
         recognizer = null
+        punctuation?.release()
+        punctuation = null
         _isReady.value = false
         _currentLanguage.value = ""
+    }
+
+    private data class SegmentSplit(val emitted: String, val remainder: String)
+
+    private fun combineText(accumulated: String, current: String): String {
+        return if (accumulated.isBlank()) current else "$accumulated $current"
+    }
+
+    /**
+     * Attempts to extract a segment from [fullText] before Sherpa endpoint fires.
+     *
+     * Strategies (in priority order):
+     * 1. Sentence boundary: if text contains a completed sentence (ends with .!?),
+     *    emit everything up to and including that sentence.
+     * 2. Long text with mid-punctuation: if word count exceeds [MAX_WORDS_BEFORE_SPLIT],
+     *    split at the last comma/semicolon/colon that is past [MIN_WORDS_FOR_PUNCT_SPLIT] words.
+     *
+     * Returns null if no early split is warranted.
+     */
+    private fun tryExtractEarlySegment(fullText: String): SegmentSplit? {
+        if (fullText.isBlank()) return null
+
+        val words = fullText.split(' ').filter { it.isNotBlank() }
+        if (words.size < MIN_WORDS_FOR_PUNCT_SPLIT) return null
+
+        // Strategy 1: sentence boundary — look for sentence-ending punctuation followed by space
+        val sentenceMatch = SENTENCE_END_REGEX.find(fullText)
+        if (sentenceMatch != null) {
+            val splitIndex = sentenceMatch.range.first + 1
+            val emitted = fullText.substring(0, splitIndex).trim()
+            val remainder = fullText.substring(splitIndex).trim()
+            if (emitted.isNotBlank()) {
+                return SegmentSplit(emitted, remainder)
+            }
+        }
+
+        // Also check if the entire text ends with sentence punctuation (no trailing space needed)
+        val trimmed = fullText.trimEnd()
+        if (trimmed.isNotEmpty() && trimmed.last() in ".!?" && words.size >= MIN_WORDS_FOR_PUNCT_SPLIT) {
+            return SegmentSplit(trimmed, "")
+        }
+
+        // Strategy 2: text too long — split at last mid-sentence punctuation
+        if (words.size >= MAX_WORDS_BEFORE_SPLIT) {
+            val lastPunctIndex = fullText.indexOfLast { it in MID_PUNCT_CHARS }
+            if (lastPunctIndex > 0) {
+                val candidateEmitted = fullText.substring(0, lastPunctIndex + 1).trim()
+                val candidateWords = candidateEmitted.split(' ').filter { it.isNotBlank() }
+                if (candidateWords.size >= MIN_WORDS_FOR_PUNCT_SPLIT) {
+                    val remainder = fullText.substring(lastPunctIndex + 1).trim()
+                    return SegmentSplit(candidateEmitted, remainder)
+                }
+            }
+        }
+
+        return null
     }
 }

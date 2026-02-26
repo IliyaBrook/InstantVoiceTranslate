@@ -26,6 +26,9 @@ interface SpeechRecognizer {
     /** Stop ongoing recognition. */
     fun stopRecognition()
 
+    /** Initialize punctuation restoration model (optional, no-op by default). */
+    fun initializePunctuation(modelDir: String) {}
+
     /** Release all native resources. */
     fun release()
 }
