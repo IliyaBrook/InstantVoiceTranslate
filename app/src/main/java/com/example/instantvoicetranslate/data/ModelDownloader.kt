@@ -22,6 +22,7 @@ import javax.inject.Singleton
 sealed class ModelStatus {
     data object NotDownloaded : ModelStatus()
     data class Downloading(val progress: Float, val currentFile: String) : ModelStatus()
+    data object Initializing : ModelStatus()
     data object Ready : ModelStatus()
     data class Error(val message: String) : ModelStatus()
 }
@@ -157,6 +158,12 @@ class ModelDownloader @Inject constructor(
 
     private val _status = MutableStateFlow<ModelStatus>(ModelStatus.NotDownloaded)
     val status: StateFlow<ModelStatus> = _status.asStateFlow()
+
+    /** Allow external callers (e.g. ViewModel) to override the status
+     *  for tracking pipeline initialization beyond just file downloads. */
+    fun updateStatus(status: ModelStatus) {
+        _status.value = status
+    }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)

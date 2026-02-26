@@ -238,6 +238,23 @@ fun MainScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
+                is ModelStatus.Initializing -> {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                "Initializing models...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 is ModelStatus.Error -> {
                     Card(
                         modifier = Modifier.fillMaxWidth(),

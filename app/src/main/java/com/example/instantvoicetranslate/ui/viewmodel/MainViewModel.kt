@@ -59,21 +59,33 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * Eagerly download the ASR model (if needed), load it into the recognizer,
-     * and initialize the TTS engine -- all in the background.
-     * By the time the user presses "Record", everything is warmed up.
+     * Eagerly download ALL models (ASR + punctuation), load them into the
+     * recognizer, and initialize the TTS engine -- all in the background.
+     * The record button (FAB) only appears when status reaches [ModelStatus.Ready],
+     * which happens AFTER every step completes.
      */
     private fun preloadPipelineComponents() {
         viewModelScope.launch {
             val currentSettings = settingsRepository.settings.first()
             val srcLang = currentSettings.sourceLanguage
 
+            // If model files are already cached, show "Initializing" instead of
+            // "Not Downloaded" to avoid a confusing flash of the download card.
+            if (modelDownloader.isModelReady(srcLang)) {
+                modelDownloader.updateStatus(ModelStatus.Initializing)
+            }
+
             // 1. Ensure ASR model files are downloaded
+            // ensureModelAvailable() sets status to Ready internally after download,
+            // but we override it below -- the FAB must NOT appear yet.
             modelDownloader.ensureModelAvailable(srcLang)
             if (!modelDownloader.isModelReady(srcLang)) {
                 Log.w(TAG, "ASR model for '$srcLang' not ready after ensureModelAvailable")
                 return@launch
             }
+
+            // Override the premature Ready -- we still need to init recognizer, punct, TTS
+            modelDownloader.updateStatus(ModelStatus.Initializing)
 
             // 2. Pre-initialize ASR recognizer (loads ONNX model into memory)
             if (!speechRecognizer.isReady.value || speechRecognizer.currentLanguage.value != srcLang) {
@@ -89,10 +101,12 @@ class MainViewModel @Inject constructor(
                     Log.i(TAG, "ASR model pre-loaded successfully")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to pre-load ASR model", e)
+                    modelDownloader.updateStatus(ModelStatus.Error("ASR init failed: ${e.message}"))
+                    return@launch
                 }
             }
 
-            // 3. Pre-initialize punctuation model (English only, ~7MB)
+            // 3. Download + initialize punctuation model (English only, ~7MB)
             if (srcLang == "en") {
                 try {
                     modelDownloader.ensurePunctModelAvailable()
@@ -113,6 +127,10 @@ class MainViewModel @Inject constructor(
                 Log.i(TAG, "Pre-initializing TTS for locale: $ttsLocale")
                 ttsEngine.initialize(ttsLocale)
             }
+
+            // ALL components ready -- NOW the FAB can appear
+            modelDownloader.updateStatus(ModelStatus.Ready)
+            Log.i(TAG, "Pipeline fully initialized for '$srcLang'")
         }
     }
 
