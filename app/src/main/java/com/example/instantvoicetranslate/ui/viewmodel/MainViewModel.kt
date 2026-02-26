@@ -3,8 +3,10 @@ package com.example.instantvoicetranslate.ui.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.media.projection.MediaProjection
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.instantvoicetranslate.asr.SpeechRecognizer
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
 import com.example.instantvoicetranslate.data.AppSettings
 import com.example.instantvoicetranslate.data.ModelDownloader
@@ -12,14 +14,21 @@ import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.data.TranslationUiState
 import com.example.instantvoicetranslate.service.TranslationService
+import com.example.instantvoicetranslate.tts.TtsEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
+/**
+ * Main ViewModel that also performs eager pre-initialization of ASR and TTS
+ * so that pressing "Record" starts capturing audio immediately without
+ * waiting for model loading or TTS engine init.
+ */
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val application: Application,
@@ -27,7 +36,13 @@ class MainViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val modelDownloader: ModelDownloader,
     private val audioCaptureManager: AudioCaptureManager,
+    private val speechRecognizer: SpeechRecognizer,
+    private val ttsEngine: TtsEngine,
 ) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "MainViewModel"
+    }
 
     val isRunning: StateFlow<Boolean> = translationUiState.isRunning
     val partialText: StateFlow<String> = translationUiState.partialText
@@ -40,13 +55,49 @@ class MainViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
 
     init {
-        checkModelStatus()
+        preloadPipelineComponents()
     }
 
-    private fun checkModelStatus() {
+    /**
+     * Eagerly download the ASR model (if needed), load it into the recognizer,
+     * and initialize the TTS engine -- all in the background.
+     * By the time the user presses "Record", everything is warmed up.
+     */
+    private fun preloadPipelineComponents() {
         viewModelScope.launch {
-            val lang = settingsRepository.settings.first().sourceLanguage
-            modelDownloader.ensureModelAvailable(lang)
+            val currentSettings = settingsRepository.settings.first()
+            val srcLang = currentSettings.sourceLanguage
+
+            // 1. Ensure ASR model files are downloaded
+            modelDownloader.ensureModelAvailable(srcLang)
+            if (!modelDownloader.isModelReady(srcLang)) {
+                Log.w(TAG, "ASR model for '$srcLang' not ready after ensureModelAvailable")
+                return@launch
+            }
+
+            // 2. Pre-initialize ASR recognizer (loads ONNX model into memory)
+            if (!speechRecognizer.isReady.value || speechRecognizer.currentLanguage.value != srcLang) {
+                try {
+                    if (speechRecognizer.isReady.value) {
+                        speechRecognizer.release()
+                    }
+                    Log.i(TAG, "Pre-loading ASR model for '$srcLang'...")
+                    speechRecognizer.initialize(
+                        modelDownloader.getModelDir(srcLang).absolutePath,
+                        srcLang
+                    )
+                    Log.i(TAG, "ASR model pre-loaded successfully")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to pre-load ASR model", e)
+                }
+            }
+
+            // 3. Pre-initialize TTS engine
+            val ttsLocale = Locale.forLanguageTag(currentSettings.targetLanguage)
+            if (!ttsEngine.isInitialized.value) {
+                Log.i(TAG, "Pre-initializing TTS for locale: $ttsLocale")
+                ttsEngine.initialize(ttsLocale)
+            }
         }
     }
 

@@ -37,10 +37,12 @@ class FreeTranslator @Inject constructor() : TextTranslator {
     private val ucid = UUID.randomUUID().toString().replace("-", "")
     private val counter = AtomicInteger(0)
 
+    // Reduced timeouts for real-time translation pipeline.
+    // A slow response is worse than no response — we fall back quickly.
     private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .writeTimeout(2, TimeUnit.SECONDS)
         .build()
 
     private val cache = LruCache<String, String>(CACHE_SIZE)
@@ -92,8 +94,7 @@ class FreeTranslator @Inject constructor() : TextTranslator {
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw Exception("Empty response from primary")
+        val responseBody = response.body.string()
 
         if (!response.isSuccessful) {
             throw Exception("Primary HTTP ${response.code}: $responseBody")
@@ -127,8 +128,7 @@ class FreeTranslator @Inject constructor() : TextTranslator {
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw Exception("Empty response from fallback")
+        val responseBody = response.body.string()
 
         if (!response.isSuccessful) {
             throw Exception("Fallback HTTP ${response.code}: $responseBody")

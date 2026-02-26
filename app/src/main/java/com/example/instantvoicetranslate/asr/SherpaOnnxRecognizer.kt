@@ -71,21 +71,25 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
                     debug = false,
                     provider = "cpu",
                 ),
+                // Tuned for low-latency real-time translation:
+                // - Rule1: pure silence endpoint (no speech detected) — 1.5s
+                // - Rule2: speech followed by pause — 0.6s (was 1.2s)
+                // - Rule3: force endpoint after 15s continuous speech
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(
                         mustContainNonSilence = false,
-                        minTrailingSilence = 2.4f,
+                        minTrailingSilence = 1.5f,
                         minUtteranceLength = 0.0f
                     ),
                     rule2 = EndpointRule(
                         mustContainNonSilence = true,
-                        minTrailingSilence = 1.2f,
+                        minTrailingSilence = 0.6f,
                         minUtteranceLength = 0.0f
                     ),
                     rule3 = EndpointRule(
                         mustContainNonSilence = false,
                         minTrailingSilence = 0.0f,
-                        minUtteranceLength = 20.0f
+                        minUtteranceLength = 15.0f
                     ),
                 ),
                 enableEndpoint = true,

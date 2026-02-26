@@ -27,7 +27,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -41,6 +43,8 @@ class TranslationService : Service() {
         const val ACTION_RESUME = "com.example.instantvoicetranslate.RESUME"
         const val EXTRA_AUDIO_SOURCE = "audio_source"
         private const val NOTIFICATION_ID = 1
+        /** Maximum number of concurrent translation requests. */
+        private const val MAX_CONCURRENT_TRANSLATIONS = 3
     }
 
     @Inject lateinit var audioCaptureManager: AudioCaptureManager
@@ -55,6 +59,15 @@ class TranslationService : Service() {
     private var pipelineJob: Job? = null
     private var isPaused = false
     private var currentAudioSource = AudioCaptureManager.Source.MICROPHONE
+
+    /**
+     * Monotonically increasing segment counter.
+     * Used to ensure translations are sent to TTS in the correct order
+     * even when translated in parallel.
+     */
+    private val segmentCounter = AtomicLong(0)
+    /** The sequence number of the last segment sent to TTS. */
+    @Volatile private var lastSpokenSeqNum = -1L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,6 +91,10 @@ class TranslationService : Service() {
 
     private fun startPipeline() {
         startForegroundNotification()
+
+        // Reset ordering state for this session
+        segmentCounter.set(0)
+        lastSpokenSeqNum = -1L
 
         pipelineJob?.cancel()
         pipelineJob = serviceScope.launch {
@@ -131,31 +148,59 @@ class TranslationService : Service() {
                 // Start recognition
                 speechRecognizer.startRecognition(audioFlow)
 
-                // Collect partial results → UI
+                // Collect partial results -> UI
                 launch {
                     speechRecognizer.partialText.collect { text ->
                         uiState.updatePartial(text)
                     }
                 }
 
-                // Collect final segments → translate → TTS → UI
+                // Collect final segments -> translate in PARALLEL -> TTS -> UI
+                // Each segment gets its own coroutine for translation,
+                // so a slow network call does not block subsequent segments.
                 launch {
+                    // Limit concurrent HTTP translation requests
+                    val translationSemaphore = Semaphore(MAX_CONCURRENT_TRANSLATIONS)
+
                     speechRecognizer.recognizedSegments.collect { segment ->
                         if (isPaused) return@collect
 
+                        // Assign a monotonic sequence number to preserve ordering
+                        val seqNum = segmentCounter.getAndIncrement()
+
+                        // Show original text immediately (no waiting for translation)
                         uiState.updateOriginal(segment)
+
                         val srcLang = settings.sourceLanguage
                         val tgtLang = settings.targetLanguage
 
-                        val result = translator.translate(segment, srcLang, tgtLang)
-                        result.onSuccess { translated ->
-                            uiState.updateTranslated(translated)
-                            if (settings.autoSpeak) {
-                                ttsEngine.speak(translated)
+                        // Launch translation in a separate coroutine (parallel)
+                        launch {
+                            translationSemaphore.acquire()
+                            try {
+                                val result = translator.translate(segment, srcLang, tgtLang)
+                                result.onSuccess { translated ->
+                                    uiState.updateTranslated(translated)
+                                    if (settings.autoSpeak) {
+                                        // Only speak if this is not an outdated segment.
+                                        // If newer segments already spoke, skip TTS for this one
+                                        // to avoid speaking stale text after fresh text.
+                                        synchronized(this@TranslationService) {
+                                            if (seqNum > lastSpokenSeqNum) {
+                                                lastSpokenSeqNum = seqNum
+                                                ttsEngine.speak(translated)
+                                            } else {
+                                                Log.d(TAG, "Skipping TTS for stale segment #$seqNum (last spoken: $lastSpokenSeqNum)")
+                                            }
+                                        }
+                                    }
+                                }.onFailure { error ->
+                                    Log.e(TAG, "Translation failed for segment #$seqNum", error)
+                                    uiState.setError("Translation failed: ${error.message}")
+                                }
+                            } finally {
+                                translationSemaphore.release()
                             }
-                        }.onFailure { error ->
-                            Log.e(TAG, "Translation failed", error)
-                            uiState.setError("Translation failed: ${error.message}")
                         }
                     }
                 }

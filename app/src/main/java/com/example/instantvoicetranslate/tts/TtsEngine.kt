@@ -21,6 +21,14 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * TTS engine with a sequential queue for streaming translation.
+ *
+ * All segments are spoken in order without skipping. New utterances are
+ * appended to the Android TTS internal queue (QUEUE_ADD) so nothing is lost.
+ * The queue processor waits for each utterance to finish before dequeuing
+ * the next one, keeping [isSpeaking] accurate for feedback-loop prevention.
+ */
 @Singleton
 class TtsEngine @Inject constructor(
     @param:ApplicationContext private val context: Context
@@ -40,10 +48,21 @@ class TtsEngine @Inject constructor(
     private val utteranceId = AtomicInteger(0)
     private var currentDeferred: CompletableDeferred<Unit>? = null
 
+    /**
+     * Unlimited channel: all segments are queued and spoken in order.
+     * Nothing is dropped — every translated segment will be read aloud.
+     */
     private val speechQueue = Channel<String>(Channel.UNLIMITED)
     private var queueScope: CoroutineScope? = null
 
     fun initialize(locale: Locale = Locale.forLanguageTag("ru"), onReady: (() -> Unit)? = null) {
+        // If already initialized with a working engine, just update locale
+        if (_isInitialized.value && tts != null) {
+            tts?.language = locale
+            onReady?.invoke()
+            return
+        }
+
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 val result = tts?.setLanguage(locale)
@@ -108,19 +127,6 @@ class TtsEngine @Inject constructor(
         tts?.setPitch(pitch.coerceIn(0.5f, 2.0f))
     }
 
-    fun setLanguage(locale: Locale) {
-        tts?.language = locale
-    }
-
-    fun release() {
-        stop()
-        queueScope?.cancel()
-        queueScope = null
-        tts?.shutdown()
-        tts = null
-        _isInitialized.value = false
-    }
-
     private fun startQueueProcessor() {
         queueScope?.cancel()
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -139,7 +145,8 @@ class TtsEngine @Inject constructor(
         val deferred = CompletableDeferred<Unit>()
         currentDeferred = deferred
 
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+        // QUEUE_ADD appends to the TTS queue — nothing is interrupted or lost.
+        engine.speak(text, TextToSpeech.QUEUE_ADD, null, id)
 
         withTimeoutOrNull(UTTERANCE_TIMEOUT_MS) {
             deferred.await()
