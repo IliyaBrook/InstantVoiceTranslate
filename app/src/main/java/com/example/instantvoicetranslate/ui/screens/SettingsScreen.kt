@@ -11,11 +11,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -26,11 +31,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
+import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import com.example.instantvoicetranslate.ui.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,17 +72,19 @@ fun SettingsScreen(
             // Language settings
             SectionHeader("Languages")
 
-            LanguageSelector(
+            LanguageDropdown(
                 label = "Source language",
                 selected = settings.sourceLanguage,
+                languages = LanguageUtils.sourceLanguages,
                 onSelect = { viewModel.updateSourceLanguage(it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            LanguageSelector(
+            LanguageDropdown(
                 label = "Target language",
                 selected = settings.targetLanguage,
+                languages = LanguageUtils.targetLanguages,
                 onSelect = { viewModel.updateTargetLanguage(it) }
             )
 
@@ -151,24 +162,45 @@ private fun SectionHeader(title: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LanguageSelector(
+private fun LanguageDropdown(
     label: String,
     selected: String,
+    languages: List<Pair<String, String>>,
     onSelect: (String) -> Unit,
 ) {
-    val languages = listOf("en" to "English", "ru" to "Russian", "es" to "Spanish", "de" to "German", "fr" to "French", "zh" to "Chinese", "ja" to "Japanese", "ko" to "Korean")
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = languages.toMap()[selected] ?: selected.uppercase()
+
     Column {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Spacer(modifier = Modifier.height(4.dp))
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            val displayLangs = languages.take(4) // Show only first 4 to fit
-            displayLangs.forEachIndexed { index, (code, _) ->
-                SegmentedButton(
-                    selected = selected == code,
-                    onClick = { onSelect(code) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = displayLangs.size)
-                ) {
-                    Text(code.uppercase(), style = MaterialTheme.typography.labelSmall)
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            OutlinedTextField(
+                value = "$selectedName (${selected.uppercase()})",
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth(),
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                languages.forEach { (code, name) ->
+                    DropdownMenuItem(
+                        text = { Text("$name (${code.uppercase()})") },
+                        onClick = {
+                            onSelect(code)
+                            expanded = false
+                        },
+                        contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                    )
                 }
             }
         }

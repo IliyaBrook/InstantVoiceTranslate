@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
 import com.example.instantvoicetranslate.data.ModelStatus
+import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import com.example.instantvoicetranslate.ui.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -110,7 +111,7 @@ fun MainScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = settings.sourceLanguage.uppercase(),
+                            text = LanguageUtils.displayName(settings.sourceLanguage),
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
@@ -119,7 +120,7 @@ fun MainScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = settings.targetLanguage.uppercase(),
+                            text = LanguageUtils.displayName(settings.targetLanguage),
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
