@@ -43,7 +43,7 @@ class TtsEngine @Inject constructor(
     private val speechQueue = Channel<String>(Channel.UNLIMITED)
     private var queueScope: CoroutineScope? = null
 
-    fun initialize(locale: Locale = Locale("ru"), onReady: (() -> Unit)? = null) {
+    fun initialize(locale: Locale = Locale.forLanguageTag("ru"), onReady: (() -> Unit)? = null) {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 val result = tts?.setLanguage(locale)

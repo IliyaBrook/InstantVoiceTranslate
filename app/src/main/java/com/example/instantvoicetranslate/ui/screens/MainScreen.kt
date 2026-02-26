@@ -30,7 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -410,7 +410,7 @@ private fun AudioSourceSelector(
             enabled = enabled,
             icon = {
                 Icon(
-                    Icons.Default.VolumeUp,
+                    Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )

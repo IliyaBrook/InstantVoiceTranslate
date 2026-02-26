@@ -96,7 +96,7 @@ class TranslationService : Service() {
                 }
 
                 // Initialize TTS
-                val ttsLocale = Locale(settings.targetLanguage)
+                val ttsLocale = Locale.forLanguageTag(settings.targetLanguage)
                 ttsEngine.initialize(ttsLocale)
                 ttsEngine.setSpeechRate(settings.ttsSpeed)
                 ttsEngine.setPitch(settings.ttsPitch)
