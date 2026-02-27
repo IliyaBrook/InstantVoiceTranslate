@@ -83,18 +83,14 @@ fun MainScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
-    // MediaProjection launcher for system audio
+    // MediaProjection consent launcher for system audio.
+    // On Android 14+ the MediaProjection must be created inside a foreground
+    // service, so we only forward the resultCode + data Intent to the service.
     val mediaProjectionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val projectionManager =
-                context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val projection = projectionManager.getMediaProjection(result.resultCode, result.data!!)
-            if (projection != null) {
-                viewModel.setMediaProjection(projection)
-                viewModel.startTranslation()
-            }
+            viewModel.startTranslationWithProjection(result.resultCode, result.data!!)
         }
     }
 

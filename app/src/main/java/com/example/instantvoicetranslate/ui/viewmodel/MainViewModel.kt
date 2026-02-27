@@ -2,7 +2,6 @@ package com.example.instantvoicetranslate.ui.viewmodel
 
 import android.app.Application
 import android.content.Intent
-import android.media.projection.MediaProjection
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -36,7 +35,6 @@ class MainViewModel @Inject constructor(
     private val translationUiState: TranslationUiState,
     private val settingsRepository: SettingsRepository,
     private val modelDownloader: ModelDownloader,
-    private val audioCaptureManager: AudioCaptureManager,
     private val speechRecognizer: SpeechRecognizer,
     private val ttsEngine: TtsEngine,
 ) : AndroidViewModel(application) {
@@ -62,7 +60,7 @@ class MainViewModel @Inject constructor(
     /**
      * Eagerly download ALL models (ASR + punctuation), load them into the
      * recognizer, and initialize the TTS engine -- all in the background.
-     * The record button (FAB) only appears when status reaches [ModelStatus.Ready],
+     * The record button (FAB) only appears when status reaches ModelStatus.Ready,
      * which happens AFTER every step completes.
      *
      * Punctuation model is downloaded in PARALLEL with the ASR model to save time.
@@ -79,7 +77,8 @@ class MainViewModel @Inject constructor(
             }
 
             // 1a. Start punctuation model download in parallel (no dependency on ASR)
-            val punctJob = if (srcLang == "en") {
+            val loadPunct = srcLang == "en"
+            val punctJob = if (loadPunct) {
                 async {
                     try {
                         modelDownloader.ensurePunctModelAvailable()
@@ -122,10 +121,10 @@ class MainViewModel @Inject constructor(
             }
 
             // 3. Wait for punctuation download (started in parallel) and initialize
-            if (srcLang == "en" && punctJob != null) {
+            if (loadPunct) {
                 modelDownloader.updateStatus(ModelStatus.Initializing("Loading punctuation model..."))
                 try {
-                    punctJob.await()
+                    punctJob?.await()
                     if (modelDownloader.isPunctModelReady()) {
                         speechRecognizer.initializePunctuation(
                             modelDownloader.getPunctModelDir().absolutePath
@@ -169,15 +168,27 @@ class MainViewModel @Inject constructor(
         application.startForegroundService(intent)
     }
 
+    /**
+     * Start translation with system audio capture.
+     * The MediaProjection consent result (resultCode + data) is forwarded
+     * to the foreground service, which creates the MediaProjection after
+     * calling startForeground(). This is required on Android 14+ (API 34).
+     */
+    fun startTranslationWithProjection(resultCode: Int, data: Intent) {
+        val intent = Intent(application, TranslationService::class.java).apply {
+            action = TranslationService.ACTION_START
+            putExtra(TranslationService.EXTRA_AUDIO_SOURCE, AudioCaptureManager.Source.SYSTEM_AUDIO.name)
+            putExtra(TranslationService.EXTRA_PROJECTION_RESULT_CODE, resultCode)
+            putExtra(TranslationService.EXTRA_PROJECTION_DATA, data)
+        }
+        application.startForegroundService(intent)
+    }
+
     fun stopTranslation() {
         val intent = Intent(application, TranslationService::class.java).apply {
             action = TranslationService.ACTION_STOP
         }
         application.startService(intent)
-    }
-
-    fun setMediaProjection(projection: MediaProjection) {
-        audioCaptureManager.setMediaProjection(projection)
     }
 
     fun updateAudioSource(source: AudioCaptureManager.Source) {

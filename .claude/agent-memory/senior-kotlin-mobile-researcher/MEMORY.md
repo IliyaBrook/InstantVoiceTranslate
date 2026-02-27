@@ -34,6 +34,17 @@
 - Download URL: github releases tag `punctuation-models`
 - Smart segmentation relies on punctuation -- punct model makes it much more effective
 
+## MediaProjection / System Audio Capture
+- **Critical bug found & fixed**: `Activity.RESULT_OK == -1`, same as default for `getIntExtra()`. Use `Int.MIN_VALUE` as sentinel.
+- Order of operations for Android 14+: `startForeground()` MUST be called BEFORE `getMediaProjection()`
+- The consent intent token can only be passed to `getMediaProjection()` once (single use)
+- `ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE` added in API 30 (not 29)
+- Manifest declares `microphone|mediaProjection` on the service
+- Always register `MediaProjection.Callback.onStop()` to handle system revocation
+- AudioPlaybackCapture supports: USAGE_MEDIA, USAGE_GAME, USAGE_UNKNOWN
+- Notification icon: `R.drawable.ic_mic_notification` (monochrome vector)
+- PendingIntent for pause/resume toggle needs `FLAG_UPDATE_CURRENT` to update action
+
 ## Technical Notes
 - Sherpa-ONNX models: EN ~189MB, RU ~26MB, DE/FR ~70MB, ES ~155MB
 - OkHttp client is singleton in FreeTranslator (connection pooling)

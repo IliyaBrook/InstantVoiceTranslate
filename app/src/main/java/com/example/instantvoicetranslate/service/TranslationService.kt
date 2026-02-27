@@ -1,9 +1,11 @@
 package com.example.instantvoicetranslate.service
 
+import android.app.Activity
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -43,6 +45,8 @@ class TranslationService : Service() {
         const val ACTION_PAUSE = "com.example.instantvoicetranslate.PAUSE"
         const val ACTION_RESUME = "com.example.instantvoicetranslate.RESUME"
         const val EXTRA_AUDIO_SOURCE = "audio_source"
+        const val EXTRA_PROJECTION_RESULT_CODE = "projection_result_code"
+        const val EXTRA_PROJECTION_DATA = "projection_data"
         private const val NOTIFICATION_ID = 1
         /** Maximum number of concurrent translation requests. */
         private const val MAX_CONCURRENT_TRANSLATIONS = 3
@@ -95,7 +99,7 @@ class TranslationService : Service() {
                 } catch (_: Exception) {
                     AudioCaptureManager.Source.MICROPHONE
                 }
-                startPipeline()
+                startPipeline(intent)
             }
             ACTION_STOP -> stopPipeline()
             ACTION_PAUSE -> pausePipeline()
@@ -104,8 +108,49 @@ class TranslationService : Service() {
         return START_STICKY
     }
 
-    private fun startPipeline() {
+    private fun startPipeline(intent: Intent) {
         startForegroundNotification()
+
+        if (currentAudioSource == AudioCaptureManager.Source.SYSTEM_AUDIO) {
+            // IMPORTANT: Activity.RESULT_OK == -1, so we must NOT use -1 as the
+            // default/sentinel value for getIntExtra(). Use Int.MIN_VALUE instead.
+            val resultCode = intent.getIntExtra(EXTRA_PROJECTION_RESULT_CODE, Int.MIN_VALUE)
+            @Suppress("DEPRECATION")
+            val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(EXTRA_PROJECTION_DATA, Intent::class.java)
+            } else {
+                intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
+            }
+            Log.d(TAG, "MediaProjection consent: resultCode=$resultCode, data=${data != null}")
+            if (resultCode != Activity.RESULT_OK || data == null) {
+                Log.e(TAG, "Missing or denied MediaProjection consent: resultCode=$resultCode, hasData=${data != null}")
+                uiState.setError("System audio: permission not granted")
+                stopPipeline()
+                return
+            }
+            val projectionManager =
+                getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = try {
+                projectionManager.getMediaProjection(resultCode, data)
+            } catch (e: Exception) {
+                Log.e(TAG, "getMediaProjection() threw an exception", e)
+                null
+            }
+            if (projection == null) {
+                Log.e(TAG, "Failed to create MediaProjection")
+                uiState.setError("System audio: failed to start capture")
+                stopPipeline()
+                return
+            }
+            // Register callback to handle projection being revoked by the system
+            projection.registerCallback(object : android.media.projection.MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.i(TAG, "MediaProjection stopped by system")
+                    stopPipeline()
+                }
+            }, android.os.Handler(mainLooper))
+            audioCaptureManager.setMediaProjection(projection)
+        }
 
         // Reset ordering state for this session
         segmentCounter.set(0)
@@ -258,6 +303,7 @@ class TranslationService : Service() {
         pipelineJob = null
         speechRecognizer.stopRecognition()
         audioCaptureManager.stopCapture()
+        audioCaptureManager.releaseMediaProjection()
         ttsEngine.stop()
         translationBuffer.clear()
         uiState.setRunning(false)
@@ -320,26 +366,36 @@ class TranslationService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Use FLAG_UPDATE_CURRENT so the PendingIntent action is replaced correctly
+        // when toggling between Pause and Resume.
         val pauseResumeIntent = PendingIntent.getService(
             this, 2,
             Intent(this, TranslationService::class.java).apply {
                 action = if (paused) ACTION_RESUME else ACTION_PAUSE
             },
-            PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val sourceLabel = when (currentAudioSource) {
+            AudioCaptureManager.Source.MICROPHONE -> "Microphone"
+            AudioCaptureManager.Source.SYSTEM_AUDIO -> "System audio"
+        }
+        val title = if (paused) "Translation paused" else "Recording \u2022 Translating"
+        val text = if (paused) "Tap to resume" else "Source: $sourceLabel \u2022 Tap to open"
+
         return NotificationCompat.Builder(this, InstantVoiceTranslateApp.CHANNEL_ID)
-            .setContentTitle(if (paused) "Translation paused" else "Translating...")
-            .setContentText("Tap to open app")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_mic_notification)
             .setContentIntent(openIntent)
             .setOngoing(true)
+            .setUsesChronometer(!paused) // show elapsed time while recording
             .addAction(
                 0,
                 if (paused) "Resume" else "Pause",
                 pauseResumeIntent
             )
-            .addAction(0, "Stop", stopIntent)
+            .addAction(R.drawable.ic_stop_notification, "Stop", stopIntent)
             .build()
     }
 
