@@ -1,4 +1,4 @@
-# Instant Voice Translate
+# Instant Voice Translate (Streaming)
 
 Android app for real-time voice translation. Captures audio from microphone or system audio, recognizes speech locally
 on-device via Sherpa-ONNX, translates text through Yandex Translate API, and speaks the result via Android TTS.
