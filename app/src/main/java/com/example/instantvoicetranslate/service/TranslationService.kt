@@ -199,10 +199,18 @@ class TranslationService : Service() {
 
                 // Select translator based on offline mode
                 val activeTranslator: TextTranslator = if (settings.offlineMode) {
-                    if (!nllbTranslator.isInitialized) {
-                        nllbTranslator.initialize()
+                    try {
+                        if (!nllbTranslator.isInitialized) {
+                            nllbTranslator.initialize()
+                        }
+                        nllbTranslator
+                    } catch (e: Throwable) {
+                        // UnsatisfiedLinkError is an Error, not Exception.
+                        // Fall back to online translator if NLLB init fails.
+                        Log.e(TAG, "NLLB init failed, falling back to online translator", e)
+                        uiState.setError("Offline mode unavailable: ${e.message}")
+                        translator
                     }
-                    nllbTranslator
                 } else {
                     translator
                 }

@@ -156,9 +156,11 @@ class MainViewModel @Inject constructor(
                         nllbTranslator.initialize()
                     }
                     Log.i(TAG, "NLLB translator pre-loaded for offline mode")
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    // Catch Throwable (not just Exception) because UnsatisfiedLinkError
+                    // is an Error, not an Exception, and can occur if ONNX Runtime
+                    // native libraries are incompatible.
                     Log.e(TAG, "Failed to pre-load NLLB translator", e)
-                    // Not fatal — offline mode can still try to initialize at translate time
                 }
             }
 

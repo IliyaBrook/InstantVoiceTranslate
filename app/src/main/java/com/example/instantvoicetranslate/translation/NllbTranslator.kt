@@ -96,7 +96,9 @@ class NllbTranslator @Inject constructor(
 
             _isAvailable.value = true
             Log.i(TAG, "NLLB translator initialized successfully")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Catch Throwable to handle UnsatisfiedLinkError when ONNX Runtime
+            // native library version doesn't match the Java bindings.
             Log.e(TAG, "Failed to initialize NLLB translator", e)
             release()
             throw e

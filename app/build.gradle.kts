@@ -62,6 +62,12 @@ android {
             pickFirsts += "lib/*/libonnxruntime.so"
         }
     }
+
+    lint {
+        // onnxruntime-android:1.17.1 native lib is not 16KB-aligned, but the APK
+        // uses libonnxruntime.so from sherpa-onnx.aar (via pickFirsts), not Maven.
+        disable += "Unaligned16KbNativeLibs"
+    }
 }
 
 dependencies {
@@ -86,9 +92,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.7")
 
     // Hilt DI — pinned at 2.56.2, Hilt 2.59.2 requires AGP 9.0+
-    //noinspection GradleDependency
+    //noinspection NewerVersionAvailable,GradleDependency
     implementation("com.google.dagger:hilt-android:2.56.2")
-    //noinspection GradleDependency
+    //noinspection NewerVersionAvailable,GradleDependency
     ksp("com.google.dagger:hilt-android-compiler:2.56.2")
     implementation("androidx.hilt:hilt-navigation-compose:1.3.0")
     implementation("androidx.hilt:hilt-lifecycle-viewmodel-compose:1.3.0")
@@ -109,7 +115,11 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
 
     // ONNX Runtime for NLLB offline translation inference
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
+    // MUST match version bundled in sherpa-onnx.aar (1.17.1) to avoid symbol versioning conflict.
+    // 16KB alignment warning is safe to ignore: the actual libonnxruntime.so in the APK
+    // comes from sherpa-onnx.aar via pickFirsts, not from this Maven dependency.
+    //noinspection Aligned16KB,NewerVersionAvailable,GradleDependency,Unaligned16KbNativeLibs
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.1")
 
     // SentencePiece tokenizer for NLLB (DJL wrapper with Android support)
     implementation("ai.djl.sentencepiece:sentencepiece:0.36.0")
