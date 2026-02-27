@@ -105,6 +105,12 @@ dependencies {
     // OkHttp for translation API + model downloads
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
 
+    // ONNX Runtime for NLLB offline translation inference
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
+
+    // SentencePiece tokenizer for NLLB (DJL wrapper with Android support)
+    implementation("ai.djl.sentencepiece:sentencepiece:0.36.0")
+
     // Apache Commons Compress for tar.bz2 extraction (punctuation model)
     implementation("org.apache.commons:commons-compress:1.28.0")
 

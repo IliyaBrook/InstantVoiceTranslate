@@ -14,6 +14,8 @@ import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.data.TranslationUiState
 import com.example.instantvoicetranslate.service.TranslationService
+import com.example.instantvoicetranslate.translation.NllbModelManager
+import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.tts.TtsEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -39,6 +41,8 @@ class MainViewModel @Inject constructor(
     private val audioCaptureManager: AudioCaptureManager,
     private val speechRecognizer: SpeechRecognizer,
     private val ttsEngine: TtsEngine,
+    private val nllbModelManager: NllbModelManager,
+    private val nllbTranslator: NllbTranslator,
 ) : AndroidViewModel(application) {
 
     companion object {
@@ -62,7 +66,7 @@ class MainViewModel @Inject constructor(
     /**
      * Eagerly download ALL models (ASR + punctuation), load them into the
      * recognizer, and initialize the TTS engine -- all in the background.
-     * The record button (FAB) only appears when status reaches [ModelStatus.Ready],
+     * The record button (FAB) only appears when status reaches ModelStatus.Ready,
      * which happens AFTER every step completes.
      *
      * Punctuation model is downloaded in PARALLEL with the ASR model to save time.
@@ -122,10 +126,10 @@ class MainViewModel @Inject constructor(
             }
 
             // 3. Wait for punctuation download (started in parallel) and initialize
-            if (srcLang == "en" && punctJob != null) {
+            punctJob?.let { job ->
                 modelDownloader.updateStatus(ModelStatus.Initializing("Loading punctuation model..."))
                 try {
-                    punctJob.await()
+                    job.await()
                     if (modelDownloader.isPunctModelReady()) {
                         speechRecognizer.initializePunctuation(
                             modelDownloader.getPunctModelDir().absolutePath
@@ -143,6 +147,20 @@ class MainViewModel @Inject constructor(
             if (!ttsEngine.isInitialized.value) {
                 Log.i(TAG, "Pre-initializing TTS for locale: $ttsLocale")
                 ttsEngine.initialize(ttsLocale)
+            }
+
+            // 5. If offline mode is enabled and NLLB model is downloaded, pre-load it
+            if (currentSettings.offlineMode && nllbModelManager.isModelReady()) {
+                modelDownloader.updateStatus(ModelStatus.Initializing("Loading offline translation model..."))
+                try {
+                    if (!nllbTranslator.isInitialized) {
+                        nllbTranslator.initialize()
+                    }
+                    Log.i(TAG, "NLLB translator pre-loaded for offline mode")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to pre-load NLLB translator", e)
+                    // Not fatal — offline mode can still try to initialize at translate time
+                }
             }
 
             // ALL components ready -- NOW the FAB can appear

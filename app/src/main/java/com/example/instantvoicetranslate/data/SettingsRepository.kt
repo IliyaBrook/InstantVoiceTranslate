@@ -29,6 +29,7 @@ data class AppSettings(
     val showPartialText: Boolean = true,
     val autoSpeak: Boolean = true,
     val muteMicDuringTts: Boolean = false,
+    val offlineMode: Boolean = false,
 )
 
 @Singleton
@@ -46,6 +47,7 @@ class SettingsRepository @Inject constructor(
         private val KEY_SHOW_PARTIAL = booleanPreferencesKey("show_partial_text")
         private val KEY_AUTO_SPEAK = booleanPreferencesKey("auto_speak")
         private val KEY_MUTE_MIC_DURING_TTS = booleanPreferencesKey("mute_mic_during_tts")
+        private val KEY_OFFLINE_MODE = booleanPreferencesKey("offline_mode")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -66,6 +68,7 @@ class SettingsRepository @Inject constructor(
             showPartialText = prefs[KEY_SHOW_PARTIAL] ?: true,
             autoSpeak = prefs[KEY_AUTO_SPEAK] ?: true,
             muteMicDuringTts = prefs[KEY_MUTE_MIC_DURING_TTS] ?: false,
+            offlineMode = prefs[KEY_OFFLINE_MODE] ?: false,
         )
     }
 
@@ -107,5 +110,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun updateMuteMicDuringTts(mute: Boolean) {
         context.dataStore.edit { it[KEY_MUTE_MIC_DURING_TTS] = mute }
+    }
+
+    suspend fun updateOfflineMode(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_OFFLINE_MODE] = enabled }
     }
 }
