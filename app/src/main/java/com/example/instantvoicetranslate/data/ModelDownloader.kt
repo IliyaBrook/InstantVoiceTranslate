@@ -152,11 +152,6 @@ class ModelDownloader @Inject constructor(
         private const val PUNCT_MODEL_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-online-punct-en-2024-08-06.tar.bz2"
         private val PUNCT_MODEL_FILES = setOf("model.int8.onnx", "bpe.vocab")
-
-        const val VAD_MODEL_DIR = "silero-vad"
-        const val VAD_MODEL_FILE = "silero_vad.onnx"
-        private const val VAD_MODEL_URL =
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
     }
 
     data class ModelFile(val name: String, val approxSize: Long)
@@ -213,41 +208,6 @@ class ModelDownloader @Inject constructor(
         downloadPunctModel()
     }
 
-    fun getVadModelPath(): String =
-        File(File(context.filesDir, VAD_MODEL_DIR), VAD_MODEL_FILE).absolutePath
-
-    fun isVadModelReady(): Boolean =
-        File(File(context.filesDir, VAD_MODEL_DIR), VAD_MODEL_FILE).exists()
-
-    suspend fun ensureVadModelAvailable() {
-        if (isVadModelReady()) return
-        downloadVadModel()
-    }
-
-    private suspend fun downloadVadModel() = withContext(Dispatchers.IO) {
-        try {
-            val dir = File(context.filesDir, VAD_MODEL_DIR)
-            dir.mkdirs()
-
-            Log.i(TAG, "VAD: Starting download from $VAD_MODEL_URL")
-            val request = Request.Builder().url(VAD_MODEL_URL).build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "VAD: Download HTTP error: ${response.code}")
-                throw Exception("VAD model download failed: HTTP ${response.code}")
-            }
-
-            val target = File(dir, VAD_MODEL_FILE)
-            val tempFile = File(dir, "$VAD_MODEL_FILE.tmp")
-            FileOutputStream(tempFile).use { out ->
-                response.body.byteStream().use { it.copyTo(out) }
-            }
-            tempFile.renameTo(target)
-            Log.i(TAG, "VAD: Downloaded OK (${target.length()} bytes)")
-        } catch (e: Exception) {
-            Log.e(TAG, "VAD: Download FAILED", e)
-        }
-    }
 
     private suspend fun downloadPunctModel() = withContext(Dispatchers.IO) {
         try {
