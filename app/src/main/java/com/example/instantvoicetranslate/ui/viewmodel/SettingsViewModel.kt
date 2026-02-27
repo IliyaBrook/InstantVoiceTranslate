@@ -3,8 +3,11 @@ package com.example.instantvoicetranslate.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.instantvoicetranslate.data.AppSettings
+import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.data.SettingsRepository
+import com.example.instantvoicetranslate.translation.NllbModelManager
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
+import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -14,11 +17,48 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val nllbModelManager: NllbModelManager,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
+
+    val nllbModelStatus: StateFlow<ModelStatus> = nllbModelManager.status
+
+    init {
+        // Set initial NLLB status based on whether model is already downloaded
+        if (nllbModelManager.isModelReady()) {
+            nllbModelManager.updateStatus(ModelStatus.Ready)
+        }
+    }
+
+    fun downloadNllbModel() {
+        viewModelScope.launch { nllbModelManager.ensureModelAvailable() }
+    }
+
+    fun deleteNllbModel() {
+        viewModelScope.launch {
+            // Disable offline mode before deleting model
+            settingsRepository.updateOfflineMode(false)
+            nllbModelManager.deleteModel()
+        }
+    }
+
+    fun updateOfflineMode(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateOfflineMode(enabled)
+            // If user switches from offline to online and the selected target language
+            // is not available in online mode, reset to default "ru"
+            if (!enabled) {
+                val currentTarget = settings.value.targetLanguage
+                val onlineCodes = LanguageUtils.onlineTargetLanguages.map { it.first }
+                if (currentTarget !in onlineCodes) {
+                    settingsRepository.updateTargetLanguage("ru")
+                }
+            }
+        }
+    }
 
     fun updateTtsSpeed(speed: Float) {
         viewModelScope.launch { settingsRepository.updateTtsSpeed(speed) }

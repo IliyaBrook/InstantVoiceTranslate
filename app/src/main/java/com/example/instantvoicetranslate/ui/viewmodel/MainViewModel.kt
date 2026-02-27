@@ -13,6 +13,8 @@ import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.data.TranslationUiState
 import com.example.instantvoicetranslate.service.TranslationService
+import com.example.instantvoicetranslate.translation.NllbModelManager
+import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.tts.TtsEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -37,6 +39,8 @@ class MainViewModel @Inject constructor(
     private val modelDownloader: ModelDownloader,
     private val speechRecognizer: SpeechRecognizer,
     private val ttsEngine: TtsEngine,
+    private val nllbModelManager: NllbModelManager,
+    private val nllbTranslator: NllbTranslator,
 ) : AndroidViewModel(application) {
 
     companion object {
@@ -142,6 +146,20 @@ class MainViewModel @Inject constructor(
             if (!ttsEngine.isInitialized.value) {
                 Log.i(TAG, "Pre-initializing TTS for locale: $ttsLocale")
                 ttsEngine.initialize(ttsLocale)
+            }
+
+            // 5. If offline mode is enabled and NLLB model is downloaded, pre-load it
+            if (currentSettings.offlineMode && nllbModelManager.isModelReady()) {
+                modelDownloader.updateStatus(ModelStatus.Initializing("Loading offline translation model..."))
+                try {
+                    if (!nllbTranslator.isInitialized) {
+                        nllbTranslator.initialize()
+                    }
+                    Log.i(TAG, "NLLB translator pre-loaded for offline mode")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to pre-load NLLB translator", e)
+                    // Not fatal — offline mode can still try to initialize at translate time
+                }
             }
 
             // ALL components ready -- NOW the FAB can appear

@@ -15,6 +15,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -22,6 +26,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
 import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import com.example.instantvoicetranslate.ui.viewmodel.SettingsViewModel
@@ -57,6 +63,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val nllbStatus by viewModel.nllbModelStatus.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -92,8 +99,21 @@ fun SettingsScreen(
             LanguageDropdown(
                 label = "Target language",
                 selected = settings.targetLanguage,
-                languages = LanguageUtils.targetLanguages,
+                languages = LanguageUtils.targetLanguagesForMode(settings.offlineMode),
                 onSelect = { viewModel.updateTargetLanguage(it) }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            // Offline Translation section
+            SectionHeader("Offline Translation")
+
+            OfflineModeSection(
+                offlineMode = settings.offlineMode,
+                nllbStatus = nllbStatus,
+                onToggleOfflineMode = { viewModel.updateOfflineMode(it) },
+                onDownload = { viewModel.downloadNllbModel() },
+                onDelete = { viewModel.deleteNllbModel() },
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
@@ -222,6 +242,175 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun OfflineModeSection(
+    offlineMode: Boolean,
+    nllbStatus: ModelStatus,
+    onToggleOfflineMode: (Boolean) -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val isModelReady = nllbStatus is ModelStatus.Ready
+
+    // Offline mode toggle — disabled until model is downloaded
+    SwitchSetting(
+        label = "Offline mode",
+        checked = offlineMode,
+        onCheckedChange = onToggleOfflineMode,
+        enabled = isModelReady,
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    when (nllbStatus) {
+        is ModelStatus.NotDownloaded -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Download offline translation model",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "NLLB-200 (~1.3 GB) — supports 30+ languages",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onDownload,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download")
+                    }
+                }
+            }
+        }
+
+        is ModelStatus.Downloading -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Downloading...",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        nllbStatus.currentFile,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { nllbStatus.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "${(nllbStatus.progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        is ModelStatus.Initializing -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Initializing...",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (nllbStatus.step.isNotBlank()) {
+                        Text(
+                            nllbStatus.step,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+
+        is ModelStatus.Ready -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Offline model installed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                    Text(
+                        "NLLB-200 (~1.3 GB)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onDelete,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                    ) {
+                        Text("Delete model")
+                    }
+                }
+            }
+        }
+
+        is ModelStatus.Error -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Download failed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        nllbStatus.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onDownload,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Retry")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SectionHeader(title: String) {
     Text(
         text = title,
@@ -311,6 +500,7 @@ private fun SwitchSetting(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -318,8 +508,17 @@ private fun SwitchSetting(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            color = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            },
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

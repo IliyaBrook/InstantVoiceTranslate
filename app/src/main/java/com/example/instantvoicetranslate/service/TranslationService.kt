@@ -19,6 +19,7 @@ import com.example.instantvoicetranslate.audio.AudioDiagnostics
 import com.example.instantvoicetranslate.data.ModelDownloader
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.data.TranslationUiState
+import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.translation.TextTranslator
 import com.example.instantvoicetranslate.tts.TtsEngine
 import dagger.hilt.android.AndroidEntryPoint
@@ -56,6 +57,7 @@ class TranslationService : Service() {
     @Inject lateinit var audioCaptureManager: AudioCaptureManager
     @Inject lateinit var speechRecognizer: SpeechRecognizer
     @Inject lateinit var translator: TextTranslator
+    @Inject lateinit var nllbTranslator: NllbTranslator
     @Inject lateinit var ttsEngine: TtsEngine
     @Inject lateinit var uiState: TranslationUiState
     @Inject lateinit var settingsRepository: SettingsRepository
@@ -195,6 +197,16 @@ class TranslationService : Service() {
                     }
                 }
 
+                // Select translator based on offline mode
+                val activeTranslator: TextTranslator = if (settings.offlineMode) {
+                    if (!nllbTranslator.isInitialized) {
+                        nllbTranslator.initialize()
+                    }
+                    nllbTranslator
+                } else {
+                    translator
+                }
+
                 // Initialize TTS
                 val ttsLocale = Locale.forLanguageTag(settings.targetLanguage)
                 ttsEngine.initialize(ttsLocale)
@@ -258,7 +270,7 @@ class TranslationService : Service() {
                         launch {
                             translationSemaphore.acquire()
                             try {
-                                val result = translator.translate(
+                                val result = activeTranslator.translate(
                                     segment, srcLang, tgtLang, contextSegment
                                 )
                                 result.onSuccess { translated ->

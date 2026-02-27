@@ -33,6 +33,7 @@ data class AppSettings(
     val audioDiagnostics: Boolean = false,
     /** Custom output directory for diagnostic WAV files (empty = default). */
     val diagOutputDir: String = "",
+    val offlineMode: Boolean = false,
 )
 
 @Singleton
@@ -52,6 +53,7 @@ class SettingsRepository @Inject constructor(
         private val KEY_MUTE_MIC_DURING_TTS = booleanPreferencesKey("mute_mic_during_tts")
         private val KEY_AUDIO_DIAGNOSTICS = booleanPreferencesKey("audio_diagnostics")
         private val KEY_DIAG_OUTPUT_DIR = stringPreferencesKey("diag_output_dir")
+        private val KEY_OFFLINE_MODE = booleanPreferencesKey("offline_mode")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -74,6 +76,7 @@ class SettingsRepository @Inject constructor(
             muteMicDuringTts = prefs[KEY_MUTE_MIC_DURING_TTS] ?: false,
             audioDiagnostics = prefs[KEY_AUDIO_DIAGNOSTICS] ?: false,
             diagOutputDir = prefs[KEY_DIAG_OUTPUT_DIR] ?: "",
+            offlineMode = prefs[KEY_OFFLINE_MODE] ?: false,
         )
     }
 
@@ -123,5 +126,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun updateDiagOutputDir(dir: String) {
         context.dataStore.edit { it[KEY_DIAG_OUTPUT_DIR] = dir }
+    }
+
+    suspend fun updateOfflineMode(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_OFFLINE_MODE] = enabled }
     }
 }
