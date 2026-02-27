@@ -12,8 +12,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -29,15 +27,30 @@ class AudioCaptureManager @Inject constructor() {
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         // ~100ms chunks: 16000 * 0.1 = 1600 samples
         private const val CHUNK_SIZE_SAMPLES = 1600
+
+        /**
+         * RMS amplitude threshold for the noise gate (system audio only).
+         * Chunks with RMS below this are replaced with silence (zeros).
+         * Prevents ASR hallucinations from low-level digital noise that
+         * MediaProjection produces when no audio is playing.
+         *
+         * Typical values:
+         * - System audio silence: RMS ~0.0 to 0.001
+         * - Quiet speech from video: RMS ~0.01+
+         * - Normal speech from video: RMS ~0.05+
+         */
+        private const val NOISE_GATE_RMS_THRESHOLD = 0.003f
     }
 
     enum class Source { MICROPHONE, SYSTEM_AUDIO }
 
     private val _isCapturing = MutableStateFlow(false)
-    val isCapturing: StateFlow<Boolean> = _isCapturing.asStateFlow()
 
     private var mediaProjection: MediaProjection? = null
     private var currentRecord: AudioRecord? = null
+
+    /** Audio diagnostics recorder. Set context before use. */
+    var diagnostics: AudioDiagnostics? = null
 
     fun setMediaProjection(projection: MediaProjection) {
         mediaProjection = projection
@@ -68,7 +81,9 @@ class AudioCaptureManager @Inject constructor() {
         currentRecord = audioRecord
         audioRecord.startRecording()
         _isCapturing.value = true
-        Log.i(TAG, "Started capturing from $source")
+        Log.i(TAG, "Started capturing from $source (noise gate threshold=$NOISE_GATE_RMS_THRESHOLD)")
+
+        diagnostics?.startRecording(source)
 
         val shortBuffer = ShortArray(CHUNK_SIZE_SAMPLES)
 
@@ -80,13 +95,25 @@ class AudioCaptureManager @Inject constructor() {
                         val floatChunk = FloatArray(read) { i ->
                             shortBuffer[i] / 32768f
                         }
-                        trySend(floatChunk)
+
+                        // Record raw audio BEFORE noise gate for diagnostics
+                        diagnostics?.writeSamples(floatChunk)
+
+                        // Apply noise gate for system audio only
+                        val outputChunk = if (source == Source.SYSTEM_AUDIO) {
+                            applyNoiseGate(floatChunk)
+                        } else {
+                            floatChunk
+                        }
+
+                        trySend(outputChunk)
                     } else if (read < 0) {
                         Log.e(TAG, "AudioRecord.read() error: $read")
                         break
                     }
                 }
             } finally {
+                diagnostics?.stopRecording()
                 audioRecord.stop()
                 audioRecord.release()
                 currentRecord = null
@@ -127,6 +154,26 @@ class AudioCaptureManager @Inject constructor() {
     fun releaseMediaProjection() {
         mediaProjection?.stop()
         mediaProjection = null
+    }
+
+    /**
+     * Noise gate for system audio. If the chunk's RMS amplitude is below
+     * [NOISE_GATE_RMS_THRESHOLD], replaces it with pure silence (zeros).
+     *
+     * This prevents the ASR model from hallucinating on low-level digital
+     * noise/artifacts that MediaProjection can produce when no actual audio
+     * is playing (video paused, silence between phrases, etc.).
+     *
+     * The microphone does NOT need this because its ambient noise has
+     * characteristics the ASR model is trained to handle as silence.
+     */
+    private fun applyNoiseGate(samples: FloatArray): FloatArray {
+        var sumSquares = 0.0
+        for (sample in samples) {
+            sumSquares += sample * sample
+        }
+        val rms = kotlin.math.sqrt(sumSquares / samples.size).toFloat()
+        return if (rms < NOISE_GATE_RMS_THRESHOLD) FloatArray(samples.size) else samples
     }
 
     @SuppressLint("MissingPermission")

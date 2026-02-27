@@ -36,6 +36,33 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         private const val TAG = "SherpaOnnxRecognizer"
         private const val SAMPLE_RATE = 16000
 
+        /**
+         * RMS energy threshold for silence detection.
+         *
+         * When RMS of an audio chunk falls below this value, it is considered
+         * silence. The state machine stops feeding audio to the recognizer
+         * and resets the encoder stream to prevent hallucinations.
+         *
+         * This works for both sources:
+         * - System audio: noise gate in AudioCaptureManager zeros out silence
+         *   → RMS = 0.0, well below threshold
+         * - Microphone: ambient noise in a quiet room has RMS ~0.002-0.01,
+         *   quiet speech has RMS ~0.01+. Threshold is set low enough to
+         *   avoid cutting off real audio.
+         */
+        private const val ENERGY_SILENCE_THRESHOLD = 0.002f
+
+        /**
+         * Number of consecutive silent chunks before triggering silence state.
+         * At ~100ms per chunk, 3 chunks = ~300ms of silence needed.
+         * This prevents brief dips (e.g. between words) from triggering
+         * premature stream resets.
+         */
+        private const val SILENCE_CHUNKS_REQUIRED = 3
+
+        /** Log energy diagnostics every N chunks (~N × 100ms). */
+        private const val DIAG_LOG_INTERVAL = 30
+
         /** Emit a segment early when partial text exceeds this word count. */
         private const val MAX_WORDS_BEFORE_SPLIT = 18
 
@@ -153,6 +180,23 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         return punctuation?.addPunctuation(text) ?: text
     }
 
+    /**
+     * Recognition loop with energy-based silence detection state machine.
+     *
+     * Uses RMS energy of each audio chunk to detect speech/silence transitions.
+     * This works for both audio sources:
+     * - System audio: noise gate in AudioCaptureManager zeros out silence,
+     *   so RMS = 0.0 during pauses → clearly detected as silence.
+     * - Microphone: ambient noise is typically above the threshold,
+     *   so the model receives all audio (same as original behavior).
+     *
+     * State machine:
+     * - SPEECH: feed audio to recognizer, decode, emit partial text
+     * - SPEECH→SILENCE transition (after N consecutive silent chunks):
+     *   flush pending text, release and recreate stream (clears encoder state)
+     * - SILENCE: skip feeding to recognizer (prevents hallucinations)
+     * - SILENCE→SPEECH transition: stream is already clean from prior reset
+     */
     override fun startRecognition(audioFlow: Flow<FloatArray>) {
         val rec = recognizer ?: run {
             Log.e(TAG, "Recognizer not initialized")
@@ -165,44 +209,82 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         recognitionScope = scope
 
         recognitionJob = scope.launch {
-            val stream = rec.createStream()
+            var stream = rec.createStream()
             var emittedText = ""
+            var isSpeaking = false
+            var consecutiveSilentChunks = 0
+            var chunkCount = 0L
+
+            Log.i(TAG, "Recognition started (energy threshold=$ENERGY_SILENCE_THRESHOLD, " +
+                    "silenceChunks=$SILENCE_CHUNKS_REQUIRED)")
 
             try {
                 audioFlow.collect { samples ->
-                    stream.acceptWaveform(samples, sampleRate = SAMPLE_RATE)
+                    chunkCount++
 
-                    while (rec.isReady(stream)) {
-                        rec.decode(stream)
+                    // Calculate RMS energy of this chunk
+                    val rms = calculateRms(samples)
+                    val chunkHasSpeech = rms > ENERGY_SILENCE_THRESHOLD
+
+                    // Diagnostic logging
+                    if (chunkCount % DIAG_LOG_INTERVAL == 0L) {
+                        Log.d(TAG, "REC #$chunkCount: rms=%.6f speech=$chunkHasSpeech " +
+                                "speaking=$isSpeaking silentRun=$consecutiveSilentChunks"
+                                    .format(rms))
                     }
 
-                    val result = rec.getResult(stream)
-                    val currentText = result.text.trim()
+                    if (chunkHasSpeech) {
+                        // === SPEECH ===
+                        consecutiveSilentChunks = 0
 
-                    val fullText = combineText(emittedText, currentText)
-
-                    if (currentText.isNotBlank()) {
-                        _partialText.value = fullText
-                    }
-
-                    // --- Smart segmentation: try to emit early before Sherpa endpoint ---
-                    val earlySegment = tryExtractEarlySegment(fullText)
-                    if (earlySegment != null) {
-                        val punctuated = applyPunctuation(earlySegment.emitted)
-                        Log.i(TAG, "Early segment emitted: $punctuated")
-                        _recognizedSegments.emit(punctuated)
-                        emittedText = earlySegment.remainder
-                        _partialText.value = earlySegment.remainder
-                        rec.reset(stream)
-                    } else if (rec.isEndpoint(stream)) {
-                        if (fullText.isNotBlank()) {
-                            val punctuated = applyPunctuation(fullText)
-                            Log.i(TAG, "Endpoint detected, segment: $punctuated")
-                            _recognizedSegments.emit(punctuated)
-                            emittedText = ""
-                            _partialText.value = ""
+                        if (!isSpeaking) {
+                            isSpeaking = true
+                            Log.d(TAG, "Energy: silence → speech (rms=%.6f)".format(rms))
                         }
-                        rec.reset(stream)
+
+                        processAudioChunk(rec, stream, samples, emittedText).let { (newEmitted, newStream) ->
+                            emittedText = newEmitted
+                            if (newStream !== stream) stream = newStream
+                        }
+
+                    } else {
+                        // === SILENCE (this chunk) ===
+                        consecutiveSilentChunks++
+
+                        if (isSpeaking) {
+                            if (consecutiveSilentChunks < SILENCE_CHUNKS_REQUIRED) {
+                                // Brief silence — still feed to recognizer
+                                // (could be a natural pause between words)
+                                processAudioChunk(rec, stream, samples, emittedText).let { (newEmitted, newStream) ->
+                                    emittedText = newEmitted
+                                    if (newStream !== stream) stream = newStream
+                                }
+                            } else {
+                                // Sustained silence → flush and reset
+                                isSpeaking = false
+                                Log.d(TAG, "Energy: speech → silence after " +
+                                        "$consecutiveSilentChunks silent chunks, flushing")
+
+                                // Feed one trailing silent chunk for finalization
+                                feedAndDecode(rec, stream, samples)
+
+                                // Emit any accumulated text
+                                val currentText = rec.getResult(stream).text.trim()
+                                val fullText = combineText(emittedText, currentText)
+                                if (fullText.isNotBlank()) {
+                                    val punctuated = applyPunctuation(fullText)
+                                    Log.i(TAG, "Flush segment: $punctuated")
+                                    _recognizedSegments.emit(punctuated)
+                                }
+
+                                // Recreate stream to fully clear encoder hidden state
+                                stream.release()
+                                stream = rec.createStream()
+                                emittedText = ""
+                                _partialText.value = ""
+                            }
+                        }
+                        // During sustained silence with no prior speech: do nothing
                     }
                 }
             } catch (e: Exception) {
@@ -211,6 +293,57 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
                 stream.release()
             }
         }
+    }
+
+    /** Calculate RMS (root-mean-square) amplitude of audio samples. */
+    private fun calculateRms(samples: FloatArray): Float {
+        var sumSquares = 0.0
+        for (sample in samples) {
+            sumSquares += sample * sample
+        }
+        return kotlin.math.sqrt(sumSquares / samples.size).toFloat()
+    }
+
+    /**
+     * Feed audio to the recognizer stream, decode, and handle segmentation.
+     * Returns updated (emittedText, stream) — stream may be replaced on early segment reset.
+     */
+    private suspend fun processAudioChunk(
+        rec: OnlineRecognizer,
+        stream: com.k2fsa.sherpa.onnx.OnlineStream,
+        samples: FloatArray,
+        emittedText: String,
+    ): Pair<String, com.k2fsa.sherpa.onnx.OnlineStream> {
+        feedAndDecode(rec, stream, samples)
+
+        val currentText = rec.getResult(stream).text.trim()
+        val fullText = combineText(emittedText, currentText)
+
+        if (currentText.isNotBlank()) {
+            _partialText.value = fullText
+        }
+
+        // --- Smart segmentation: try to emit early before Sherpa endpoint ---
+        val earlySegment = tryExtractEarlySegment(fullText)
+        if (earlySegment != null) {
+            val punctuated = applyPunctuation(earlySegment.emitted)
+            Log.i(TAG, "Early segment emitted: $punctuated")
+            _recognizedSegments.emit(punctuated)
+            _partialText.value = earlySegment.remainder
+            rec.reset(stream)
+            return Pair(earlySegment.remainder, stream)
+        } else if (rec.isEndpoint(stream)) {
+            if (fullText.isNotBlank()) {
+                val punctuated = applyPunctuation(fullText)
+                Log.i(TAG, "Endpoint detected, segment: $punctuated")
+                _recognizedSegments.emit(punctuated)
+                _partialText.value = ""
+            }
+            rec.reset(stream)
+            return Pair("", stream)
+        }
+
+        return Pair(emittedText, stream)
     }
 
     override fun stopRecognition() {
@@ -229,6 +362,18 @@ class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
         punctuation = null
         _isReady.value = false
         _currentLanguage.value = ""
+    }
+
+    /** Feed audio samples into the stream and run all available decode steps. */
+    private fun feedAndDecode(
+        rec: OnlineRecognizer,
+        stream: com.k2fsa.sherpa.onnx.OnlineStream,
+        samples: FloatArray,
+    ) {
+        stream.acceptWaveform(samples, sampleRate = SAMPLE_RATE)
+        while (rec.isReady(stream)) {
+            rec.decode(stream)
+        }
     }
 
     private data class SegmentSplit(val emitted: String, val remainder: String)

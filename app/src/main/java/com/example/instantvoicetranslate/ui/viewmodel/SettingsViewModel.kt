@@ -55,4 +55,12 @@ class SettingsViewModel @Inject constructor(
     fun updateMuteMicDuringTts(mute: Boolean) {
         viewModelScope.launch { settingsRepository.updateMuteMicDuringTts(mute) }
     }
+
+    fun updateAudioDiagnostics(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.updateAudioDiagnostics(enabled) }
+    }
+
+    fun updateDiagOutputDir(dir: String) {
+        viewModelScope.launch { settingsRepository.updateDiagOutputDir(dir) }
+    }
 }

@@ -15,6 +15,7 @@ import com.example.instantvoicetranslate.R
 import com.example.instantvoicetranslate.InstantVoiceTranslateApp
 import com.example.instantvoicetranslate.asr.SpeechRecognizer
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
+import com.example.instantvoicetranslate.audio.AudioDiagnostics
 import com.example.instantvoicetranslate.data.ModelDownloader
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.data.TranslationUiState
@@ -213,7 +214,15 @@ class TranslationService : Service() {
                     rawAudioFlow
                 }
 
-                // Start recognition
+                // Attach audio diagnostics if enabled in settings.
+                // Recordings saved to: /sdcard/Android/data/<pkg>/files/audio_diag/
+                audioCaptureManager.diagnostics = if (settings.audioDiagnostics) {
+                    AudioDiagnostics(this@TranslationService, settings.diagOutputDir)
+                } else {
+                    null
+                }
+
+                // Start recognition (energy-based silence detection inside recognizer)
                 speechRecognizer.startRecognition(audioFlow)
 
                 // Collect partial results -> UI
@@ -304,6 +313,7 @@ class TranslationService : Service() {
         speechRecognizer.stopRecognition()
         audioCaptureManager.stopCapture()
         audioCaptureManager.releaseMediaProjection()
+        audioCaptureManager.diagnostics = null
         ttsEngine.stop()
         translationBuffer.clear()
         uiState.setRunning(false)

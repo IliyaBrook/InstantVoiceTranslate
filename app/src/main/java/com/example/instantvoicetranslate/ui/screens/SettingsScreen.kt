@@ -1,5 +1,9 @@
 package com.example.instantvoicetranslate.ui.screens
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -28,6 +33,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,7 +42,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
 import com.example.instantvoicetranslate.ui.utils.LanguageUtils
@@ -144,6 +152,69 @@ fun SettingsScreen(
                 selected = settings.themeMode,
                 onSelect = { viewModel.updateThemeMode(it) }
             )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            // Diagnostics
+            SectionHeader("Diagnostics")
+
+            SwitchSetting(
+                label = "Record audio to WAV files",
+                checked = settings.audioDiagnostics,
+                onCheckedChange = { viewModel.updateAudioDiagnostics(it) }
+            )
+
+            if (settings.audioDiagnostics) {
+                val context = LocalContext.current
+                val dirPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocumentTree()
+                ) { uri ->
+                    if (uri != null) {
+                        context.contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        )
+                        viewModel.updateDiagOutputDir(uri.toString())
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { dirPickerLauncher.launch(null) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Choose output directory")
+                    }
+                    if (settings.diagOutputDir.isNotBlank()) {
+                        TextButton(onClick = { viewModel.updateDiagOutputDir("") }) {
+                            Text("Reset")
+                        }
+                    }
+                }
+
+                // Show selected path
+                val displayPath = if (settings.diagOutputDir.isBlank()) {
+                    "Default: Android/data/${context.packageName}/files/audio_diag/"
+                } else {
+                    val decoded = settings.diagOutputDir.toUri().lastPathSegment
+                        ?.replace("primary:", "/storage/emulated/0/")
+                        ?: settings.diagOutputDir
+                    "Path: $decoded"
+                }
+                Text(
+                    text = displayPath,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
         }

@@ -29,6 +29,10 @@ data class AppSettings(
     val showPartialText: Boolean = true,
     val autoSpeak: Boolean = true,
     val muteMicDuringTts: Boolean = false,
+    /** Record raw audio to WAV files for debugging (off by default). */
+    val audioDiagnostics: Boolean = false,
+    /** Custom output directory for diagnostic WAV files (empty = default). */
+    val diagOutputDir: String = "",
 )
 
 @Singleton
@@ -46,6 +50,8 @@ class SettingsRepository @Inject constructor(
         private val KEY_SHOW_PARTIAL = booleanPreferencesKey("show_partial_text")
         private val KEY_AUTO_SPEAK = booleanPreferencesKey("auto_speak")
         private val KEY_MUTE_MIC_DURING_TTS = booleanPreferencesKey("mute_mic_during_tts")
+        private val KEY_AUDIO_DIAGNOSTICS = booleanPreferencesKey("audio_diagnostics")
+        private val KEY_DIAG_OUTPUT_DIR = stringPreferencesKey("diag_output_dir")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -66,6 +72,8 @@ class SettingsRepository @Inject constructor(
             showPartialText = prefs[KEY_SHOW_PARTIAL] ?: true,
             autoSpeak = prefs[KEY_AUTO_SPEAK] ?: true,
             muteMicDuringTts = prefs[KEY_MUTE_MIC_DURING_TTS] ?: false,
+            audioDiagnostics = prefs[KEY_AUDIO_DIAGNOSTICS] ?: false,
+            diagOutputDir = prefs[KEY_DIAG_OUTPUT_DIR] ?: "",
         )
     }
 
@@ -107,5 +115,13 @@ class SettingsRepository @Inject constructor(
 
     suspend fun updateMuteMicDuringTts(mute: Boolean) {
         context.dataStore.edit { it[KEY_MUTE_MIC_DURING_TTS] = mute }
+    }
+
+    suspend fun updateAudioDiagnostics(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_AUDIO_DIAGNOSTICS] = enabled }
+    }
+
+    suspend fun updateDiagOutputDir(dir: String) {
+        context.dataStore.edit { it[KEY_DIAG_OUTPUT_DIR] = dir }
     }
 }
