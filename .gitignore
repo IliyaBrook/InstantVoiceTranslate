@@ -3,3 +3,4 @@
 .gradle
 app/build
 .claude/hooks/data
+.imp

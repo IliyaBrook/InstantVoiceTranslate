@@ -7,6 +7,7 @@ import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
+import android.os.Process
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -196,6 +197,9 @@ class AudioCaptureManager @Inject constructor() {
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
             .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+            // Exclude our own app's audio (TTS) from capture to prevent
+            // the ASR model from hearing its own speech output (feedback loop).
+            .excludeUid(Process.myUid())
             .build()
 
         val format = AudioFormat.Builder()

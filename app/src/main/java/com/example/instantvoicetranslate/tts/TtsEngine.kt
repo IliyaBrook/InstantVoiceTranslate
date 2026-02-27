@@ -1,6 +1,7 @@
 package com.example.instantvoicetranslate.tts
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -82,6 +83,17 @@ class TtsEngine @Inject constructor(
                     Log.w(TAG, "Language $locale not supported, trying English")
                     tts?.language = Locale.US
                 }
+
+                // Use USAGE_ASSISTANT so that TTS audio is NOT captured by
+                // MediaProjection (AudioPlaybackCapture). Android automatically
+                // excludes USAGE_ASSISTANT from playback capture, preventing
+                // the ASR model from hearing its own translated speech output.
+                tts?.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
 
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
