@@ -22,7 +22,7 @@ import javax.inject.Singleton
 sealed class ModelStatus {
     data object NotDownloaded : ModelStatus()
     data class Downloading(val progress: Float, val currentFile: String) : ModelStatus()
-    data object Initializing : ModelStatus()
+    data class Initializing(val step: String = "") : ModelStatus()
     data object Ready : ModelStatus()
     data class Error(val message: String) : ModelStatus()
 }

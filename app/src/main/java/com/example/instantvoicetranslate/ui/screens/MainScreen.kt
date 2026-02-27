@@ -245,9 +245,16 @@ fun MainScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "Initializing models...",
+                                "Initializing...",
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            if (status.step.isNotBlank()) {
+                                Text(
+                                    status.step,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }

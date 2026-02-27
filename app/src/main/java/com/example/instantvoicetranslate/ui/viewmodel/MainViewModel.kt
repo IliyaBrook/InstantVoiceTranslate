@@ -16,6 +16,7 @@ import com.example.instantvoicetranslate.data.TranslationUiState
 import com.example.instantvoicetranslate.service.TranslationService
 import com.example.instantvoicetranslate.tts.TtsEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -63,6 +64,8 @@ class MainViewModel @Inject constructor(
      * recognizer, and initialize the TTS engine -- all in the background.
      * The record button (FAB) only appears when status reaches [ModelStatus.Ready],
      * which happens AFTER every step completes.
+     *
+     * Punctuation model is downloaded in PARALLEL with the ASR model to save time.
      */
     private fun preloadPipelineComponents() {
         viewModelScope.launch {
@@ -72,22 +75,33 @@ class MainViewModel @Inject constructor(
             // If model files are already cached, show "Initializing" instead of
             // "Not Downloaded" to avoid a confusing flash of the download card.
             if (modelDownloader.isModelReady(srcLang)) {
-                modelDownloader.updateStatus(ModelStatus.Initializing)
+                modelDownloader.updateStatus(ModelStatus.Initializing("Loading speech model..."))
             }
 
-            // 1. Ensure ASR model files are downloaded
+            // 1a. Start punctuation model download in parallel (no dependency on ASR)
+            val punctJob = if (srcLang == "en") {
+                async {
+                    try {
+                        modelDownloader.ensurePunctModelAvailable()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Punctuation model download failed", e)
+                    }
+                }
+            } else null
+
+            // 1b. Ensure ASR model files are downloaded
             // ensureModelAvailable() sets status to Ready internally after download,
             // but we override it below -- the FAB must NOT appear yet.
             modelDownloader.ensureModelAvailable(srcLang)
             if (!modelDownloader.isModelReady(srcLang)) {
                 Log.w(TAG, "ASR model for '$srcLang' not ready after ensureModelAvailable")
+                punctJob?.cancel()
                 return@launch
             }
 
-            // Override the premature Ready -- we still need to init recognizer, punct, TTS
-            modelDownloader.updateStatus(ModelStatus.Initializing)
-
             // 2. Pre-initialize ASR recognizer (loads ONNX model into memory)
+            modelDownloader.updateStatus(ModelStatus.Initializing("Loading speech model..."))
+
             if (!speechRecognizer.isReady.value || speechRecognizer.currentLanguage.value != srcLang) {
                 try {
                     if (speechRecognizer.isReady.value) {
@@ -102,14 +116,16 @@ class MainViewModel @Inject constructor(
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to pre-load ASR model", e)
                     modelDownloader.updateStatus(ModelStatus.Error("ASR init failed: ${e.message}"))
+                    punctJob?.cancel()
                     return@launch
                 }
             }
 
-            // 3. Download + initialize punctuation model (English only, ~7MB)
-            if (srcLang == "en") {
+            // 3. Wait for punctuation download (started in parallel) and initialize
+            if (srcLang == "en" && punctJob != null) {
+                modelDownloader.updateStatus(ModelStatus.Initializing("Loading punctuation model..."))
                 try {
-                    modelDownloader.ensurePunctModelAvailable()
+                    punctJob.await()
                     if (modelDownloader.isPunctModelReady()) {
                         speechRecognizer.initializePunctuation(
                             modelDownloader.getPunctModelDir().absolutePath
@@ -122,6 +138,7 @@ class MainViewModel @Inject constructor(
             }
 
             // 4. Pre-initialize TTS engine
+            modelDownloader.updateStatus(ModelStatus.Initializing("Starting TTS engine..."))
             val ttsLocale = Locale.forLanguageTag(currentSettings.targetLanguage)
             if (!ttsEngine.isInitialized.value) {
                 Log.i(TAG, "Pre-initializing TTS for locale: $ttsLocale")
