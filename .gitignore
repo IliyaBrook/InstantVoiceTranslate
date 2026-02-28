@@ -5,3 +5,5 @@ app/build
 .claude/hooks/data
 .imp
 build
+release-keystore.jks
+keystore.properties
