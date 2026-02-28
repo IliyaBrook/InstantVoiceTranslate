@@ -155,11 +155,13 @@ class TranslationService : Service() {
             audioCaptureManager.setMediaProjection(projection)
         }
 
-        // Reset ordering state for this session
+        // Reset ordering state and clear previous results for this session
         segmentCounter.set(0)
         translationBuffer.clear()
         nextTtsSeqNum.set(0)
         lastTranslatedSegment = null
+        uiState.clearTexts()
+        uiState.setError(null)
 
         pipelineJob?.cancel()
         pipelineJob = serviceScope.launch {

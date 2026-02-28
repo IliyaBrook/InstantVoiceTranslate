@@ -88,6 +88,14 @@ class TranslationUiState @Inject constructor() {
         }
     }
 
+    fun clearTexts() {
+        _partialText.value = ""
+        _originalText.value = ""
+        _translatedText.value = ""
+        synchronized(originalHistory) { originalHistory.clear() }
+        synchronized(translatedHistory) { translatedHistory.clear() }
+    }
+
     fun setError(message: String?) {
         _error.value = message
         if (message != null) {
