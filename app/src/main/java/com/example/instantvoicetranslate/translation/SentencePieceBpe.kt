@@ -33,6 +33,9 @@ class SentencePieceBpe {
     private var idToPiece = emptyMap<Int, String>()
     private var unkId = 0
 
+    /** Number of tokens in the SentencePiece vocabulary (needed for language token ID calculation). */
+    val vocabSize: Int get() = pieces.size
+
 
     /**
      * Load vocabulary from a sentencepiece.bpe.model file.

@@ -56,6 +56,10 @@
 - Encoder KV is constant across all steps (computed once in first decoder step)
 - Decoder KV grows each step (self-attention accumulates past tokens)
 - SentencePieceBpe: pure Kotlin BPE tokenizer, no native deps needed
+- **CRITICAL BUG FOUND**: FAIRSEQ_LANGUAGE_CODES in NllbTokenizer.kt was missing
+  `kmr_Latn` (Northern Kurdish) at index 98. Must have 202 codes, not 201.
+  sentencepiece.bpe.model has vocabSize=256000, NOT 256003 as comments claimed.
+  Language token formula: id = 256000 + 1 + index. Correct base = 256001.
 
 ## Technical Notes
 - Sherpa-ONNX models: EN ~189MB, RU ~26MB, DE/FR ~70MB, ES ~155MB
