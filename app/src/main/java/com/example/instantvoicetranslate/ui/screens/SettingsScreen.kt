@@ -3,6 +3,7 @@ package com.example.instantvoicetranslate.ui.screens
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,9 +49,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.instantvoicetranslate.R
 import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
 import com.example.instantvoicetranslate.ui.utils.LanguageUtils
@@ -68,10 +72,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.title_settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 }
             )
@@ -84,11 +88,17 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            // App Language
+            SectionHeader(stringResource(R.string.section_app_language))
+            AppLanguageSelector()
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
             // Language settings
-            SectionHeader("Languages")
+            SectionHeader(stringResource(R.string.section_languages))
 
             LanguageDropdown(
-                label = "Source language",
+                label = stringResource(R.string.label_source_language),
                 selected = settings.sourceLanguage,
                 languages = LanguageUtils.sourceLanguages,
                 onSelect = { viewModel.updateSourceLanguage(it) }
@@ -97,7 +107,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             LanguageDropdown(
-                label = "Target language",
+                label = stringResource(R.string.label_target_language),
                 selected = settings.targetLanguage,
                 languages = LanguageUtils.targetLanguagesForMode(settings.offlineMode),
                 onSelect = { viewModel.updateTargetLanguage(it) }
@@ -106,7 +116,7 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // Offline Translation section
-            SectionHeader("Offline Translation")
+            SectionHeader(stringResource(R.string.section_offline_translation))
 
             OfflineModeSection(
                 offlineMode = settings.offlineMode,
@@ -119,30 +129,30 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // TTS settings
-            SectionHeader("Text-to-Speech")
+            SectionHeader(stringResource(R.string.section_tts))
 
             SliderSetting(
-                label = "Speech speed",
+                label = stringResource(R.string.label_speech_speed),
                 value = settings.ttsSpeed,
                 valueRange = 0.5f..2.0f,
                 onValueChange = { viewModel.updateTtsSpeed(it) }
             )
 
             SliderSetting(
-                label = "Pitch",
+                label = stringResource(R.string.label_pitch),
                 value = settings.ttsPitch,
                 valueRange = 0.5f..2.0f,
                 onValueChange = { viewModel.updateTtsPitch(it) }
             )
 
             SwitchSetting(
-                label = "Auto-speak translations",
+                label = stringResource(R.string.label_auto_speak),
                 checked = settings.autoSpeak,
                 onCheckedChange = { viewModel.updateAutoSpeak(it) }
             )
 
             SwitchSetting(
-                label = "Mute mic during TTS",
+                label = stringResource(R.string.label_mute_mic_during_tts),
                 checked = settings.muteMicDuringTts,
                 onCheckedChange = { viewModel.updateMuteMicDuringTts(it) }
             )
@@ -150,16 +160,16 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // Display settings
-            SectionHeader("Display")
+            SectionHeader(stringResource(R.string.section_display))
 
             SwitchSetting(
-                label = "Show original text",
+                label = stringResource(R.string.label_show_original_text),
                 checked = settings.showOriginalText,
                 onCheckedChange = { viewModel.updateShowOriginalText(it) }
             )
 
             SwitchSetting(
-                label = "Show partial ASR text",
+                label = stringResource(R.string.label_show_partial_asr),
                 checked = settings.showPartialText,
                 onCheckedChange = { viewModel.updateShowPartialText(it) }
             )
@@ -167,7 +177,7 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // Theme
-            SectionHeader("Theme")
+            SectionHeader(stringResource(R.string.section_theme))
             ThemeSelector(
                 selected = settings.themeMode,
                 onSelect = { viewModel.updateThemeMode(it) }
@@ -176,10 +186,10 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // Diagnostics
-            SectionHeader("Diagnostics")
+            SectionHeader(stringResource(R.string.section_diagnostics))
 
             SwitchSetting(
-                label = "Record audio to WAV files",
+                label = stringResource(R.string.label_record_audio_wav),
                 checked = settings.audioDiagnostics,
                 onCheckedChange = { viewModel.updateAudioDiagnostics(it) }
             )
@@ -210,23 +220,24 @@ fun SettingsScreen(
                         onClick = { dirPickerLauncher.launch(null) },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Choose output directory")
+                        Text(stringResource(R.string.action_choose_output_dir))
                     }
                     if (settings.diagOutputDir.isNotBlank()) {
                         TextButton(onClick = { viewModel.updateDiagOutputDir("") }) {
-                            Text("Reset")
+                            Text(stringResource(R.string.action_reset))
                         }
                     }
                 }
 
                 // Show selected path
+                val context2 = LocalContext.current
                 val displayPath = if (settings.diagOutputDir.isBlank()) {
-                    "Default: Android/data/${context.packageName}/files/audio_diag/"
+                    stringResource(R.string.diag_default_path, context2.packageName)
                 } else {
                     val decoded = settings.diagOutputDir.toUri().lastPathSegment
                         ?.replace("primary:", "/storage/emulated/0/")
                         ?: settings.diagOutputDir
-                    "Path: $decoded"
+                    stringResource(R.string.diag_custom_path, decoded)
                 }
                 Text(
                     text = displayPath,
@@ -237,6 +248,79 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+/**
+ * App language selector using Android Per-App Language Preferences API.
+ * Options: System default, English, Russian.
+ * Uses AppCompatDelegate.setApplicationLocales() for backward compatibility.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppLanguageSelector() {
+    // Available app languages: tag -> display name (in native language)
+    val appLanguages = remember {
+        listOf(
+            "" to null,       // System default — display name resolved from string resource
+            "en" to "English",
+            "ru" to "\u0420\u0443\u0441\u0441\u043a\u0438\u0439",
+        )
+    }
+
+    val systemDefaultLabel = stringResource(R.string.app_language_system)
+
+    // Read current locale from AppCompat
+    val currentLocales = AppCompatDelegate.getApplicationLocales()
+    val currentTag = if (currentLocales.isEmpty) "" else currentLocales.toLanguageTags()
+
+    // Find current selection
+    val selectedTag = appLanguages.firstOrNull { (tag, _) ->
+        if (tag.isEmpty()) currentLocales.isEmpty
+        else currentTag.startsWith(tag, ignoreCase = true)
+    }?.first ?: ""
+
+    val selectedDisplayName = appLanguages.firstOrNull { it.first == selectedTag }
+        ?.let { (tag, name) -> if (tag.isEmpty()) systemDefaultLabel else name }
+        ?: systemDefaultLabel
+
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+    ) {
+        OutlinedTextField(
+            value = selectedDisplayName,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            appLanguages.forEach { (tag, name) ->
+                val displayName = if (tag.isEmpty()) systemDefaultLabel else name ?: tag
+                DropdownMenuItem(
+                    text = { Text(displayName) },
+                    onClick = {
+                        expanded = false
+                        val newLocales = if (tag.isEmpty()) {
+                            LocaleListCompat.getEmptyLocaleList()
+                        } else {
+                            LocaleListCompat.forLanguageTags(tag)
+                        }
+                        AppCompatDelegate.setApplicationLocales(newLocales)
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                )
+            }
         }
     }
 }
@@ -253,7 +337,7 @@ private fun OfflineModeSection(
 
     // Offline mode toggle — disabled until model is downloaded
     SwitchSetting(
-        label = "Offline mode",
+        label = stringResource(R.string.offline_mode),
         checked = offlineMode,
         onCheckedChange = onToggleOfflineMode,
         enabled = isModelReady,
@@ -271,11 +355,11 @@ private fun OfflineModeSection(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Download offline translation model",
+                        stringResource(R.string.offline_download_title),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "NLLB-200 (~1.3 GB) — supports 30+ languages",
+                        stringResource(R.string.offline_download_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -284,7 +368,7 @@ private fun OfflineModeSection(
                         onClick = onDownload,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Download")
+                        Text(stringResource(R.string.action_download))
                     }
                 }
             }
@@ -299,7 +383,7 @@ private fun OfflineModeSection(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Downloading...",
+                        stringResource(R.string.offline_downloading),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
@@ -331,7 +415,7 @@ private fun OfflineModeSection(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Initializing...",
+                        stringResource(R.string.offline_initializing),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     if (nllbStatus.step.isNotBlank()) {
@@ -356,12 +440,12 @@ private fun OfflineModeSection(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Offline model installed",
+                        stringResource(R.string.offline_model_installed),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                     Text(
-                        "NLLB-200 (~1.3 GB)",
+                        stringResource(R.string.offline_model_size),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
                     )
@@ -373,7 +457,7 @@ private fun OfflineModeSection(
                             contentColor = MaterialTheme.colorScheme.error
                         ),
                     ) {
-                        Text("Delete model")
+                        Text(stringResource(R.string.action_delete_model))
                     }
                 }
             }
@@ -388,7 +472,7 @@ private fun OfflineModeSection(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Download failed",
+                        stringResource(R.string.offline_download_failed),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
@@ -402,7 +486,7 @@ private fun OfflineModeSection(
                         onClick = onDownload,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Retry")
+                        Text(stringResource(R.string.action_retry))
                     }
                 }
             }
@@ -537,9 +621,9 @@ private fun ThemeSelector(
             ) {
                 Text(
                     when (mode) {
-                        ThemeMode.SYSTEM -> "System"
-                        ThemeMode.LIGHT -> "Light"
-                        ThemeMode.DARK -> "Dark"
+                        ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+                        ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+                        ThemeMode.DARK -> stringResource(R.string.theme_dark)
                     }
                 )
             }

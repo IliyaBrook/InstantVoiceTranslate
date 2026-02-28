@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Мгновенный голосовой перевод</string>
+
+    <!-- Main Screen -->
+    <string name="action_settings">Настройки</string>
+    <string name="action_stop">Стоп</string>
+    <string name="action_start">Старт</string>
+    <string name="label_translation">Перевод</string>
+    <string name="placeholder_translation">Нажмите кнопку микрофона для начала перевода</string>
+    <string name="label_original">Оригинал</string>
+    <string name="label_partial_asr">Частичное распознавание</string>
+    <string name="placeholder_ellipsis">…</string>
+    <string name="status_listening">Слушаю…</string>
+    <string name="audio_source_microphone">Микрофон</string>
+    <string name="audio_source_system_audio">Системный звук</string>
+
+    <!-- Model Status -->
+    <string name="model_not_downloaded">Модель STT не загружена</string>
+    <string name="model_download_button">Скачать (~44 МБ)</string>
+    <string name="model_downloading">Загрузка модели…</string>
+    <string name="model_initializing">Инициализация…</string>
+    <string name="model_download_error">Ошибка загрузки: %1$s</string>
+    <string name="action_retry">Повторить</string>
+
+    <!-- Settings Screen -->
+    <string name="title_settings">Настройки</string>
+    <string name="action_back">Назад</string>
+    <string name="section_languages">Языки</string>
+    <string name="label_source_language">Исходный язык</string>
+    <string name="label_target_language">Целевой язык</string>
+    <string name="section_offline_translation">Офлайн-перевод</string>
+    <string name="section_tts">Синтез речи</string>
+    <string name="label_speech_speed">Скорость речи</string>
+    <string name="label_pitch">Тон</string>
+    <string name="label_auto_speak">Автоозвучивание переводов</string>
+    <string name="label_mute_mic_during_tts">Отключать микрофон при озвучке</string>
+    <string name="section_display">Отображение</string>
+    <string name="label_show_original_text">Показывать оригинальный текст</string>
+    <string name="label_show_partial_asr">Показывать частичное распознавание</string>
+    <string name="section_theme">Тема</string>
+    <string name="theme_system">Системная</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="section_diagnostics">Диагностика</string>
+    <string name="label_record_audio_wav">Запись аудио в WAV файлы</string>
+    <string name="action_choose_output_dir">Выбрать папку</string>
+    <string name="action_reset">Сброс</string>
+    <string name="diag_default_path">По умолчанию: Android/data/%1$s/files/audio_diag/</string>
+    <string name="diag_custom_path">Путь: %1$s</string>
+
+    <!-- Offline Translation Section -->
+    <string name="offline_mode">Офлайн-режим</string>
+    <string name="offline_download_title">Скачать модель офлайн-перевода</string>
+    <string name="offline_download_subtitle">NLLB-200 (~1.3 ГБ) — поддержка 30+ языков</string>
+    <string name="action_download">Скачать</string>
+    <string name="offline_downloading">Загрузка…</string>
+    <string name="offline_initializing">Инициализация…</string>
+    <string name="offline_model_installed">Офлайн-модель установлена</string>
+    <string name="offline_model_size">NLLB-200 (~1.3 ГБ)</string>
+    <string name="action_delete_model">Удалить модель</string>
+    <string name="offline_download_failed">Ошибка загрузки</string>
+
+    <!-- App Language Section -->
+    <string name="section_app_language">Язык приложения</string>
+    <string name="app_language_system">Системный по умолчанию</string>
+
+    <!-- Notification strings -->
+    <string name="notification_title_paused">Перевод приостановлен</string>
+    <string name="notification_title_active">Запись • Перевод</string>
+    <string name="notification_text_paused">Нажмите для продолжения</string>
+    <string name="notification_text_active">Источник: %1$s • Нажмите для открытия</string>
+    <string name="notification_action_pause">Пауза</string>
+    <string name="notification_action_resume">Продолжить</string>
+    <string name="notification_action_stop">Стоп</string>
+    <string name="notification_source_microphone">Микрофон</string>
+    <string name="notification_source_system_audio">Системный звук</string>
+</resources>

@@ -53,10 +53,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.instantvoicetranslate.R
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
 import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.ui.utils.LanguageUtils
@@ -120,7 +122,7 @@ fun MainScreen(
                 },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.action_settings))
                     }
                 }
             )
@@ -159,11 +161,11 @@ fun MainScreen(
                         )
                         isRunning -> Icon(
                             imageVector = Icons.Default.Stop,
-                            contentDescription = "Stop",
+                            contentDescription = stringResource(R.string.action_stop),
                         )
                         else -> Icon(
                             imageVector = Icons.Default.Mic,
-                            contentDescription = "Start",
+                            contentDescription = stringResource(R.string.action_start),
                         )
                     }
                 }
@@ -201,12 +203,12 @@ fun MainScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "STT model not downloaded",
+                                stringResource(R.string.model_not_downloaded),
                                 style = MaterialTheme.typography.bodyLarge
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             FilledTonalButton(onClick = { viewModel.downloadModel() }) {
-                                Text("Download (~44 MB)")
+                                Text(stringResource(R.string.model_download_button))
                             }
                         }
                     }
@@ -217,7 +219,7 @@ fun MainScreen(
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                "Downloading model...",
+                                stringResource(R.string.model_downloading),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
@@ -247,7 +249,7 @@ fun MainScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "Initializing...",
+                                stringResource(R.string.model_initializing),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             if (status.step.isNotBlank()) {
@@ -276,12 +278,12 @@ fun MainScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "Download error: ${status.message}",
+                                stringResource(R.string.model_download_error, status.message),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             FilledTonalButton(onClick = { viewModel.downloadModel() }) {
-                                Text("Retry")
+                                Text(stringResource(R.string.action_retry))
                             }
                         }
                     }
@@ -295,9 +297,9 @@ fun MainScreen(
 
             // Translation (always visible)
             TextSection(
-                label = "Translation",
+                label = stringResource(R.string.label_translation),
                 text = translatedText,
-                placeholder = "Press the mic button to start translating",
+                placeholder = stringResource(R.string.placeholder_translation),
                 textStyle = MaterialTheme.typography.headlineSmall,
                 textColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -308,9 +310,9 @@ fun MainScreen(
             if (settings.showOriginalText) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 TextSection(
-                    label = "Original",
+                    label = stringResource(R.string.label_original),
                     text = originalText,
-                    placeholder = "...",
+                    placeholder = stringResource(R.string.placeholder_ellipsis),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
                     textColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -322,9 +324,9 @@ fun MainScreen(
             if (settings.showPartialText) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 TextSection(
-                    label = "Partial ASR",
+                    label = stringResource(R.string.label_partial_asr),
                     text = if (isRunning) partialText else "",
-                    placeholder = "...",
+                    placeholder = stringResource(R.string.placeholder_ellipsis),
                     textStyle = MaterialTheme.typography.bodySmall,
                     textColor = MaterialTheme.colorScheme.onSurface,
                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -351,7 +353,7 @@ fun MainScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Listening...",
+                        stringResource(R.string.status_listening),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -430,7 +432,7 @@ private fun AudioSourceSelector(
                 )
             }
         ) {
-            Text("Microphone")
+            Text(stringResource(R.string.audio_source_microphone))
         }
         SegmentedButton(
             selected = selected == AudioCaptureManager.Source.SYSTEM_AUDIO,
@@ -445,7 +447,7 @@ private fun AudioSourceSelector(
                 )
             }
         ) {
-            Text("System Audio")
+            Text(stringResource(R.string.audio_source_system_audio))
         }
     }
 }

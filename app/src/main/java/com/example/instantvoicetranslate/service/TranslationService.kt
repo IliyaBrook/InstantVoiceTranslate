@@ -412,11 +412,11 @@ class TranslationService : Service() {
         )
 
         val sourceLabel = when (currentAudioSource) {
-            AudioCaptureManager.Source.MICROPHONE -> "Microphone"
-            AudioCaptureManager.Source.SYSTEM_AUDIO -> "System audio"
+            AudioCaptureManager.Source.MICROPHONE -> getString(R.string.notification_source_microphone)
+            AudioCaptureManager.Source.SYSTEM_AUDIO -> getString(R.string.notification_source_system_audio)
         }
-        val title = if (paused) "Translation paused" else "Recording \u2022 Translating"
-        val text = if (paused) "Tap to resume" else "Source: $sourceLabel \u2022 Tap to open"
+        val title = if (paused) getString(R.string.notification_title_paused) else getString(R.string.notification_title_active)
+        val text = if (paused) getString(R.string.notification_text_paused) else getString(R.string.notification_text_active, sourceLabel)
 
         return NotificationCompat.Builder(this, InstantVoiceTranslateApp.CHANNEL_ID)
             .setContentTitle(title)
@@ -427,10 +427,10 @@ class TranslationService : Service() {
             .setUsesChronometer(!paused) // show elapsed time while recording
             .addAction(
                 0,
-                if (paused) "Resume" else "Pause",
+                if (paused) getString(R.string.notification_action_resume) else getString(R.string.notification_action_pause),
                 pauseResumeIntent
             )
-            .addAction(R.drawable.ic_stop_notification, "Stop", stopIntent)
+            .addAction(R.drawable.ic_stop_notification, getString(R.string.notification_action_stop), stopIntent)
             .build()
     }
 
