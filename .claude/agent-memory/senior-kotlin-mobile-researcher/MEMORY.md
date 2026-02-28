@@ -45,6 +45,18 @@
 - Notification icon: `R.drawable.ic_mic_notification` (monochrome vector)
 - PendingIntent for pause/resume toggle needs `FLAG_UPDATE_CURRENT` to update action
 
+## NLLB-200 Offline Translation (ONNX)
+- Model: Xenova/nllb-200-distilled-600M (m2m_100 architecture)
+- Key files: `NllbTranslator.kt`, `NllbModelManager.kt`, `NllbTokenizer.kt`
+- Architecture: 12 layers, 16 heads, d_model=1024, head_dim=64, vocab=256206
+- **Uses TWO separate decoder models** (not merged), see `nllb-research.md` for details
+- Files: encoder_model_quantized.onnx (419MB) + decoder_model_quantized.onnx (471MB)
+  + decoder_with_past_model_quantized.onnx (445MB) + tokenizer (~5MB) = ~1.34GB total
+- KV cache: 48 tensors total (12 layers x 4: decoder.key/value + encoder.key/value)
+- Encoder KV is constant across all steps (computed once in first decoder step)
+- Decoder KV grows each step (self-attention accumulates past tokens)
+- SentencePieceBpe: pure Kotlin BPE tokenizer, no native deps needed
+
 ## Technical Notes
 - Sherpa-ONNX models: EN ~189MB, RU ~26MB, DE/FR ~70MB, ES ~155MB
 - OkHttp client is singleton in FreeTranslator (connection pooling)

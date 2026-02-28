@@ -121,8 +121,6 @@ dependencies {
     //noinspection Aligned16KB,NewerVersionAvailable,GradleDependency,Unaligned16KbNativeLibs
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.1")
 
-    // SentencePiece tokenizer for NLLB (DJL wrapper with Android support)
-    implementation("ai.djl.sentencepiece:sentencepiece:0.36.0")
 
     // Apache Commons Compress for tar.bz2 extraction (punctuation model)
     implementation("org.apache.commons:commons-compress:1.28.0")

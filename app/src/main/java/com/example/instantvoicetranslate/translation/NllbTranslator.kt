@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,11 +22,33 @@ import javax.inject.Singleton
  * Implements TextTranslator so it can be used as a drop-in replacement
  * for FreeTranslator when offline mode is enabled.
  *
+ * Uses **two separate decoder** ONNX models:
+ * - `decoder_model_quantized.onnx` for the first decoding step (no KV cache).
+ *   Computes cross-attention from encoder_hidden_states and outputs both
+ *   decoder self-attention and encoder cross-attention present KV tensors.
+ * - `decoder_with_past_model_quantized.onnx` for subsequent steps (with KV cache).
+ *   Receives both decoder and encoder past_key_values as input, only recomputes
+ *   decoder self-attention, and passes encoder cross-attention KV through unchanged.
+ *
+ * This two-model approach avoids the ONNX Runtime crash caused by the merged
+ * decoder's If-node Reshape failure on Android:
+ *   "Non-zero status code returned while running Reshape node
+ *    '/model/decoder/layers.0/encoder_attn/Reshape_4'"
+ *
+ * The merged decoder (`decoder_model_merged_quantized.onnx`) combines both models
+ * into a single file with a `use_cache_branch` boolean controlling an If node.
+ * While this works in Transformers.js (WebAssembly/WebGPU ONNX Runtime), it fails
+ * on Android's ONNX Runtime due to the If-node producing zero-length encoder
+ * cross-attention KV tensors on the first step, which then cause Reshape errors
+ * on subsequent steps. The separate model approach is also 3-4x faster per step
+ * since ONNX Runtime's If-node has significant overhead (microsoft/onnxruntime#11367).
+ *
  * Inference pipeline:
  * 1. Tokenize input with SentencePiece (source language prefix + EOS)
- * 2. Run encoder → hidden states
- * 3. Autoregressive decoder loop with KV cache → output tokens
- * 4. Detokenize output
+ * 2. Run encoder -> hidden states
+ * 3. First decoder step (no cache) -> logits + initial KV cache
+ * 4. Autoregressive decoder loop with KV cache -> output tokens
+ * 5. Detokenize output
  */
 @Singleton
 class NllbTranslator @Inject constructor(
@@ -34,8 +57,10 @@ class NllbTranslator @Inject constructor(
 
     companion object {
         private const val TAG = "NllbTranslator"
+        private const val MAX_INPUT_TOKENS = 50
         private const val MAX_OUTPUT_TOKENS = 256
         private const val CACHE_SIZE = 200
+
     }
 
     private val _isAvailable = MutableStateFlow(false)
@@ -49,11 +74,15 @@ class NllbTranslator @Inject constructor(
 
     private val cache = LruCache<String, String>(CACHE_SIZE)
 
-    val isInitialized: Boolean get() = encoderSession != null && tokenizer?.isInitialized == true
+    val isInitialized: Boolean
+        get() = encoderSession != null
+                && decoderSession != null
+                && decoderWithPastSession != null
+                && tokenizer?.isInitialized == true
 
     /**
      * Load ONNX sessions and tokenizer. Call before first translation.
-     * This is resource-intensive (~1.3 GB RAM) and should only be called
+     * This is resource-intensive (~900 MB RAM) and should only be called
      * when offline mode is enabled.
      */
     suspend fun initialize(): Unit = withContext(Dispatchers.IO) {
@@ -82,13 +111,23 @@ class NllbTranslator @Inject constructor(
                 File(modelDir, "decoder_model_quantized.onnx").absolutePath,
                 sessionOptions
             )
-            Log.i(TAG, "Decoder session loaded")
+            Log.i(TAG, "Decoder session loaded (no-cache, first step)")
 
             decoderWithPastSession = env.createSession(
                 File(modelDir, "decoder_with_past_model_quantized.onnx").absolutePath,
                 sessionOptions
             )
-            Log.i(TAG, "Decoder-with-past session loaded")
+            Log.i(TAG, "Decoder-with-past session loaded (with KV cache)")
+
+            // Log model input/output names for debugging
+            decoderSession?.let { session ->
+                Log.d(TAG, "Decoder inputs: ${session.inputNames.sorted()}")
+                Log.d(TAG, "Decoder outputs: ${session.outputNames.sorted()}")
+            }
+            decoderWithPastSession?.let { session ->
+                Log.d(TAG, "Decoder-with-past inputs: ${session.inputNames.sorted()}")
+                Log.d(TAG, "Decoder-with-past outputs: ${session.outputNames.sorted()}")
+            }
 
             val tok = NllbTokenizer()
             tok.initialize(modelDir)
@@ -106,7 +145,7 @@ class NllbTranslator @Inject constructor(
     }
 
     /**
-     * Release all ONNX sessions and tokenizer to free RAM (~1.3 GB).
+     * Release all ONNX sessions and tokenizer to free RAM.
      * Call when offline mode is disabled.
      */
     fun release() {
@@ -151,11 +190,17 @@ class NllbTranslator @Inject constructor(
         val env = ortEnv ?: error("ORT environment not initialized")
         val encoder = encoderSession ?: error("Encoder session not initialized")
         val decoder = decoderSession ?: error("Decoder session not initialized")
-        val decoderWP = decoderWithPastSession ?: error("Decoder-with-past session not initialized")
+        val decoderWithPast = decoderWithPastSession
+            ?: error("Decoder-with-past session not initialized")
         val tok = tokenizer ?: error("Tokenizer not initialized")
 
-        // 1. Tokenize input
-        val inputIds = tok.encode(text, from)
+        // 1. Tokenize input (truncate to model's max sequence length)
+        var inputIds = tok.encode(text, from)
+        if (inputIds.size > MAX_INPUT_TOKENS) {
+            // Keep: [lang_token] + text_tokens[..truncated] + [EOS]
+            inputIds = inputIds.copyOfRange(0, MAX_INPUT_TOKENS - 1) +
+                    longArrayOf(NllbTokenizer.EOS_TOKEN_ID)
+        }
         val seqLen = inputIds.size.toLong()
 
         // 2. Run encoder
@@ -167,28 +212,29 @@ class NllbTranslator @Inject constructor(
             env, LongBuffer.wrap(attentionMask), longArrayOf(1, seqLen)
         )
 
-        val encoderInputs = mapOf(
-            "input_ids" to inputIdsTensor,
-            "attention_mask" to attentionMaskTensor,
+        val encoderOutputs = encoder.run(
+            mapOf(
+                "input_ids" to inputIdsTensor,
+                "attention_mask" to attentionMaskTensor,
+            )
         )
-
-        val encoderOutputs = encoder.run(encoderInputs)
         val encoderHiddenStates = encoderOutputs[0] as OnnxTensor
 
-        // 3. Autoregressive decoder loop
+        // 3. First decoder step using decoder_model (no KV cache)
+        //    This model computes cross-attention from encoder_hidden_states
+        //    and outputs present.*.decoder.* and present.*.encoder.* KV tensors.
         val targetLangTokenId = tok.getTargetLangTokenId(to)
         val outputTokens = mutableListOf<Long>()
 
-        // First decoder step: input = [EOS], forced output = target_lang_token
         var decoderInputIds = longArrayOf(NllbTokenizer.EOS_TOKEN_ID)
 
-        // Run first decoder step (no KV cache)
-        val firstStepInputs = mutableMapOf<String, OnnxTensor>()
-        firstStepInputs["input_ids"] = OnnxTensor.createTensor(
-            env, LongBuffer.wrap(decoderInputIds), longArrayOf(1, 1)
+        val firstStepInputs = mutableMapOf<String, OnnxTensor>(
+            "input_ids" to OnnxTensor.createTensor(
+                env, LongBuffer.wrap(decoderInputIds), longArrayOf(1, 1)
+            ),
+            "encoder_hidden_states" to encoderHiddenStates,
+            "encoder_attention_mask" to attentionMaskTensor,
         )
-        firstStepInputs["encoder_hidden_states"] = encoderHiddenStates
-        firstStepInputs["encoder_attention_mask"] = attentionMaskTensor
 
         val firstStepOutputs = decoder.run(firstStepInputs)
 
@@ -196,18 +242,37 @@ class NllbTranslator @Inject constructor(
         outputTokens.add(targetLangTokenId)
         decoderInputIds = longArrayOf(targetLangTokenId)
 
-        // Extract KV cache from first step outputs
-        var kvCache = extractKvCache(firstStepOutputs, env)
+        // Extract KV cache from first step.
+        // The decoder_model outputs present.*.decoder.* and present.*.encoder.*
+        // Both are needed as inputs for decoder_with_past_model.
+        val decoderWithPastInputNames = decoderWithPast.inputNames
+        val kvCache = extractKvCache(firstStepOutputs, env, decoderWithPastInputNames)
 
-        // Close first step tensors
-        firstStepOutputs.close()
-        firstStepInputs.values.forEach { tensor ->
-            if (tensor !== encoderHiddenStates && tensor !== attentionMaskTensor) {
-                tensor.close()
-            }
+        Log.d(TAG, "First step: kvCache has ${kvCache.size} entries")
+        // Log shapes for debugging
+        for ((name, tensor) in kvCache) {
+            Log.d(TAG, "  $name -> shape ${tensor.info.shape.toList()}")
         }
 
-        // Continue decoding with decoder_with_past
+        // Separate encoder KV cache (constant across all steps) from decoder KV cache
+        val encoderKvCache = mutableMapOf<String, OnnxTensor>()
+        val decoderKvCache = mutableMapOf<String, OnnxTensor>()
+        for ((name, tensor) in kvCache) {
+            if (name.contains(".encoder.")) {
+                encoderKvCache[name] = tensor
+            } else {
+                decoderKvCache[name] = tensor
+            }
+        }
+        Log.d(TAG, "Encoder KV cache: ${encoderKvCache.size} tensors, " +
+                "Decoder KV cache: ${decoderKvCache.size} tensors")
+
+        // Close first step resources
+        firstStepOutputs.close()
+        firstStepInputs["input_ids"]?.close()
+
+        // 4. Continue decoding with decoder_with_past_model (has KV cache)
+        var currentDecoderKvCache = decoderKvCache
         var decodedTokens = 0
         while (decodedTokens < MAX_OUTPUT_TOKENS) {
             decodedTokens++
@@ -215,13 +280,22 @@ class NllbTranslator @Inject constructor(
             stepInputs["input_ids"] = OnnxTensor.createTensor(
                 env, LongBuffer.wrap(decoderInputIds), longArrayOf(1, 1)
             )
-            stepInputs["encoder_hidden_states"] = encoderHiddenStates
-            stepInputs["encoder_attention_mask"] = attentionMaskTensor
 
-            // Add KV cache tensors
-            stepInputs.putAll(kvCache)
+            // Pass encoder context (needed for cross-attention mask)
+            if ("encoder_hidden_states" in decoderWithPastInputNames) {
+                stepInputs["encoder_hidden_states"] = encoderHiddenStates
+            }
+            if ("encoder_attention_mask" in decoderWithPastInputNames) {
+                stepInputs["encoder_attention_mask"] = attentionMaskTensor
+            }
 
-            val stepOutputs = decoderWP.run(stepInputs)
+            // Add decoder self-attention KV cache (changes every step)
+            stepInputs.putAll(currentDecoderKvCache)
+
+            // Add encoder cross-attention KV cache (constant, computed once in step 1)
+            stepInputs.putAll(encoderKvCache)
+
+            val stepOutputs = decoderWithPast.run(stepInputs)
 
             // Get logits and find the best next token
             val logits = stepOutputs[0] as OnnxTensor
@@ -239,74 +313,108 @@ class NllbTranslator @Inject constructor(
                 }
             }
 
-            // Close old KV cache tensors (they are not shared with other maps)
-            kvCache.values.forEach { it.close() }
+            // Close old decoder KV cache tensors (not encoder -- those are reused!)
+            currentDecoderKvCache.values.forEach { it.close() }
+
+            // Clean up step-local tensor
+            stepInputs["input_ids"]?.close()
 
             if (maxIdx == NllbTokenizer.EOS_TOKEN_ID) {
                 stepOutputs.close()
-                stepInputs["input_ids"]?.close()
                 break
             }
 
             outputTokens.add(maxIdx)
             decoderInputIds = longArrayOf(maxIdx)
 
-            // Extract updated KV cache for next step
-            kvCache = extractKvCache(stepOutputs, env)
+            // Extract ONLY decoder self-attention KV from this step's output.
+            // Encoder cross-attention KV is constant and was saved from step 1.
+            currentDecoderKvCache = extractDecoderOnlyKvCache(
+                stepOutputs, env, decoderWithPastInputNames
+            )
 
             stepOutputs.close()
-            stepInputs["input_ids"]?.close()
         }
 
-        // Clean up remaining KV cache
-        kvCache.values.forEach { it.close() }
-
-        // 4. Clean up encoder tensors
+        // 5. Clean up
+        currentDecoderKvCache.values.forEach { it.close() }
+        encoderKvCache.values.forEach { it.close() }
         encoderOutputs.close()
         inputIdsTensor.close()
         attentionMaskTensor.close()
 
-        // 5. Detokenize
+        // 6. Detokenize
         val result = tok.decode(outputTokens.toLongArray())
-        Log.d(TAG, "Translated '$text' → '$result' ($from → $to, ${outputTokens.size} tokens)")
+        Log.d(TAG, "Translated '$text' -> '$result' ($from -> $to, ${outputTokens.size} tokens)")
         return result
     }
 
     /**
-     * Extract KV cache tensors from decoder outputs and prepare them as inputs
-     * for the next decoder step.
+     * Extract ALL KV cache tensors (both decoder self-attention and encoder cross-attention)
+     * from decoder outputs. Used after the first decoder step to get the initial KV cache.
      *
      * Output names use "present.X.Y.Z" prefix, input names use "past_key_values.X.Y.Z".
      */
     private fun extractKvCache(
         outputs: OrtSession.Result,
         env: OrtEnvironment,
+        expectedInputNames: Set<String>,
     ): Map<String, OnnxTensor> {
         val cache = mutableMapOf<String, OnnxTensor>()
 
-        // Get output info to find KV cache tensor names
-        val outputNames = outputs.map { it.key }
+        for ((name, _) in outputs) {
+            if (!name.startsWith("present")) continue
 
-        for (name in outputNames) {
-            if (name.startsWith("present")) {
-                val inputName = name.replace("present", "past_key_values")
-                val tensor = outputs.get(name).orElse(null) as? OnnxTensor ?: continue
+            val inputName = name.replace("present", "past_key_values")
+            // Only extract KV tensors that the decoder-with-past model expects
+            if (inputName !in expectedInputNames) continue
 
-                // Clone tensor data for use in next step (outputs will be closed)
-                val shape = tensor.info.shape
-                val buffer = tensor.floatBuffer
-                val data = FloatArray(buffer.remaining())
-                buffer.get(data)
+            val tensor = outputs.get(name).orElse(null) as? OnnxTensor ?: continue
 
-                val cloned = OnnxTensor.createTensor(
-                    env,
-                    java.nio.FloatBuffer.wrap(data),
-                    shape
-                )
-                cache[inputName] = cloned
-            }
+            // Clone tensor data for use in next step (outputs will be closed)
+            cache[inputName] = cloneTensor(tensor, env)
         }
 
         return cache
+    }
+
+    /**
+     * Extract ONLY decoder self-attention KV cache from step outputs.
+     * Encoder cross-attention KV is constant and reused from the first step,
+     * so we skip any present.*.encoder.* tensors.
+     */
+    private fun extractDecoderOnlyKvCache(
+        outputs: OrtSession.Result,
+        env: OrtEnvironment,
+        expectedInputNames: Set<String>,
+    ): MutableMap<String, OnnxTensor> {
+        val cache = mutableMapOf<String, OnnxTensor>()
+
+        for ((name, _) in outputs) {
+            if (!name.startsWith("present")) continue
+            // Skip encoder cross-attention KV -- it's constant
+            if (name.contains(".encoder.")) continue
+
+            val inputName = name.replace("present", "past_key_values")
+            if (inputName !in expectedInputNames) continue
+
+            val tensor = outputs.get(name).orElse(null) as? OnnxTensor ?: continue
+            cache[inputName] = cloneTensor(tensor, env)
+        }
+
+        return cache
+    }
+
+    /**
+     * Clone an OnnxTensor by copying its float data into a new tensor.
+     * Necessary because the source tensor's data becomes invalid after
+     * the OrtSession.Result is closed.
+     */
+    private fun cloneTensor(tensor: OnnxTensor, env: OrtEnvironment): OnnxTensor {
+        val shape = tensor.info.shape
+        val buffer = tensor.floatBuffer
+        val data = FloatArray(buffer.remaining())
+        buffer.get(data)
+        return OnnxTensor.createTensor(env, FloatBuffer.wrap(data), shape)
     }
 }

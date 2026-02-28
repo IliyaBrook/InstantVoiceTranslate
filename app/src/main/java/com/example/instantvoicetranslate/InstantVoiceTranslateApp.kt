@@ -14,6 +14,7 @@ class InstantVoiceTranslateApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
         createNotificationChannel()
     }
 

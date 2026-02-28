@@ -1,11 +1,13 @@
 package com.example.instantvoicetranslate.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.instantvoicetranslate.data.AppSettings
 import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.translation.NllbModelManager
+import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
 import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,7 +21,12 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val nllbModelManager: NllbModelManager,
+    private val nllbTranslator: NllbTranslator,
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "SettingsViewModel"
+    }
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
@@ -34,7 +41,29 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun downloadNllbModel() {
-        viewModelScope.launch { nllbModelManager.ensureModelAvailable() }
+        viewModelScope.launch {
+            nllbModelManager.ensureModelAvailable()
+
+            // Warmup: initialize NLLB translator to force DJL native lib
+            // extraction/caching while we still have internet (if needed).
+            // This ensures offline mode works later without any network calls.
+            if (nllbModelManager.isModelReady()) {
+                nllbModelManager.updateStatus(
+                    ModelStatus.Initializing("Warming up offline translation...")
+                )
+                try {
+                    nllbTranslator.initialize()
+                    Log.i(TAG, "NLLB warmup completed, releasing to free RAM")
+                    nllbTranslator.release()
+                    nllbModelManager.updateStatus(ModelStatus.Ready)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "NLLB warmup failed", e)
+                    nllbModelManager.updateStatus(
+                        ModelStatus.Error("Warmup failed: ${e.message}")
+                    )
+                }
+            }
+        }
     }
 
     fun deleteNllbModel() {

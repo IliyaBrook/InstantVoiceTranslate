@@ -72,6 +72,7 @@ fun MainScreen(
     viewModel: MainViewModel,
     onNavigateToSettings: () -> Unit,
 ) {
+    val isStarting by viewModel.isStarting.collectAsStateWithLifecycle()
     val isRunning by viewModel.isRunning.collectAsStateWithLifecycle()
     val partialText by viewModel.partialText.collectAsStateWithLifecycle()
     val originalText by viewModel.originalText.collectAsStateWithLifecycle()
@@ -135,7 +136,7 @@ fun MainScreen(
                     onClick = {
                         if (isRunning) {
                             viewModel.stopTranslation()
-                        } else {
+                        } else if (!isStarting) {
                             if (settings.audioSource == AudioCaptureManager.Source.SYSTEM_AUDIO) {
                                 val projectionManager = context.getSystemService(
                                     Context.MEDIA_PROJECTION_SERVICE
@@ -148,16 +149,27 @@ fun MainScreen(
                             }
                         }
                     },
-                    containerColor = if (isRunning) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
+                    containerColor = when {
+                        isRunning -> MaterialTheme.colorScheme.error
+                        isStarting -> MaterialTheme.colorScheme.surfaceVariant
+                        else -> MaterialTheme.colorScheme.primary
                     }
                 ) {
-                    Icon(
-                        imageVector = if (isRunning) Icons.Default.Stop else Icons.Default.Mic,
-                        contentDescription = if (isRunning) "Stop" else "Start"
-                    )
+                    when {
+                        isStarting -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        isRunning -> Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop",
+                        )
+                        else -> Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Start",
+                        )
+                    }
                 }
             }
         }

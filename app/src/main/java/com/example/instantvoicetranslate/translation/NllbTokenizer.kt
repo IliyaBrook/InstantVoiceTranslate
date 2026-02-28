@@ -1,10 +1,8 @@
 package com.example.instantvoicetranslate.translation
 
-import ai.djl.sentencepiece.SpProcessor
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
-import java.nio.file.Path
 
 /**
  * SentencePiece tokenizer wrapper for NLLB-200 model.
@@ -22,7 +20,7 @@ class NllbTokenizer {
         const val EOS_TOKEN_ID = 2L
     }
 
-    private var processor: SpProcessor? = null
+    private var processor: SentencePieceBpe? = null
 
     /** NLLB language code → token ID, parsed from tokenizer_config.json. */
     private val langTokenIds = mutableMapOf<String, Long>()
@@ -37,12 +35,10 @@ class NllbTokenizer {
         val spmFile = File(modelDir, "sentencepiece.bpe.model")
         require(spmFile.exists()) { "SentencePiece model not found: ${spmFile.absolutePath}" }
 
-        // SpProcessor.newInstance() is package-private in DJL, access via reflection
-        val factoryMethod = SpProcessor::class.java.getDeclaredMethod(
-            "newInstance", Path::class.java
-        )
-        factoryMethod.isAccessible = true
-        processor = factoryMethod.invoke(null, Path.of(spmFile.absolutePath)) as SpProcessor
+        // Pure Kotlin BPE tokenizer — no native libraries needed
+        val sp = SentencePieceBpe()
+        sp.loadModel(spmFile)
+        processor = sp
         Log.i(TAG, "SentencePiece model loaded")
 
         // Parse language token IDs from tokenizer_config.json
@@ -100,7 +96,6 @@ class NllbTokenizer {
         processor?.close()
         processor = null
         langTokenIds.clear()
-        Log.i(TAG, "Tokenizer released")
     }
 
     /**
@@ -110,21 +105,27 @@ class NllbTokenizer {
     private fun parseLangTokenIds(configFile: File) {
         try {
             val json = JSONObject(configFile.readText())
-            val addedTokens = json.optJSONObject("added_tokens_decoder") ?: return
+            val addedTokens = json.optJSONObject("added_tokens_decoder")
 
-            // Only extract tokens that look like NLLB language codes (xxx_Xxxx pattern)
-            val langCodePattern = Regex("^[a-z]{3}_[A-Z][a-z]{3}$")
-
-            val keys = addedTokens.keys()
-            while (keys.hasNext()) {
-                val idStr = keys.next()
-                val tokenObj = addedTokens.getJSONObject(idStr)
-                val content = tokenObj.getString("content")
-                if (langCodePattern.matches(content)) {
-                    langTokenIds[content] = idStr.toLong()
+            if (addedTokens != null) {
+                val langCodePattern = Regex("^[a-z]{3}_[A-Z][a-z]{3}$")
+                val keys = addedTokens.keys()
+                while (keys.hasNext()) {
+                    val idStr = keys.next()
+                    val tokenObj = addedTokens.getJSONObject(idStr)
+                    val content = tokenObj.getString("content")
+                    if (langCodePattern.matches(content)) {
+                        langTokenIds[content] = idStr.toLong()
+                    }
                 }
             }
-            Log.i(TAG, "Parsed ${langTokenIds.size} language tokens from tokenizer_config.json")
+
+            if (langTokenIds.isEmpty()) {
+                Log.w(TAG, "No language tokens parsed from tokenizer_config.json, using fallback")
+                loadFallbackLangTokenIds()
+            } else {
+                Log.i(TAG, "Parsed ${langTokenIds.size} language tokens from tokenizer_config.json")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse tokenizer_config.json, using fallback", e)
             loadFallbackLangTokenIds()

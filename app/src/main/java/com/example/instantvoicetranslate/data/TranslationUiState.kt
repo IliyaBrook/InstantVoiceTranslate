@@ -20,6 +20,9 @@ class TranslationUiState @Inject constructor() {
         private const val MAX_HISTORY_LINES = 10
     }
 
+    private val _isStarting = MutableStateFlow(false)
+    val isStarting: StateFlow<Boolean> = _isStarting.asStateFlow()
+
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
@@ -70,8 +73,16 @@ class TranslationUiState @Inject constructor() {
         }
     }
 
+    fun setStarting(starting: Boolean) {
+        _isStarting.value = starting
+    }
+
     fun setRunning(running: Boolean) {
         _isRunning.value = running
+        if (running) {
+            // Pipeline started successfully — clear the starting indicator
+            _isStarting.value = false
+        }
         if (!running) {
             _partialText.value = ""
         }
@@ -79,6 +90,10 @@ class TranslationUiState @Inject constructor() {
 
     fun setError(message: String?) {
         _error.value = message
+        if (message != null) {
+            // Pipeline failed to start — clear the starting indicator
+            _isStarting.value = false
+        }
     }
 
 }

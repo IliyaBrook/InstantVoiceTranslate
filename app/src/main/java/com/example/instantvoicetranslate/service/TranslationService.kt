@@ -206,10 +206,13 @@ class TranslationService : Service() {
                         nllbTranslator
                     } catch (e: Throwable) {
                         // UnsatisfiedLinkError is an Error, not Exception.
-                        // Fall back to online translator if NLLB init fails.
-                        Log.e(TAG, "NLLB init failed, falling back to online translator", e)
-                        uiState.setError("Offline mode unavailable: ${e.message}")
-                        translator
+                        // Do NOT fall back to online translator — user explicitly
+                        // chose offline mode, so failing with a clear error is
+                        // better than silently using an online service.
+                        Log.e(TAG, "NLLB init failed, cannot proceed in offline mode", e)
+                        uiState.setError("Offline translation unavailable: ${e.message}")
+                        stopPipeline()
+                        return@launch
                     }
                 } else {
                     translator

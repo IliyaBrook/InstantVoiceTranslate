@@ -306,34 +306,14 @@ class ModelDownloader @Inject constructor(
                 val url = "${config.baseUrl}/${file.name}"
                 Log.i(TAG, "Downloading ${file.name} from $url")
 
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download ${file.name}: HTTP ${response.code}")
+                downloadToFile(client, url, target) { fileDownloaded ->
+                    val totalProgress = (downloadedSoFar + fileDownloaded).toFloat() / totalSize
+                    _status.value = ModelStatus.Downloading(
+                        progress = totalProgress.coerceIn(0f, 1f),
+                        currentFile = file.name
+                    )
                 }
 
-                val body = response.body
-                val tempFile = File(dir, "${file.name}.tmp")
-
-                FileOutputStream(tempFile).use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var fileDownloaded = 0L
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            fileDownloaded += bytesRead
-                            val totalProgress = (downloadedSoFar + fileDownloaded).toFloat() / totalSize
-                            _status.value = ModelStatus.Downloading(
-                                progress = totalProgress.coerceIn(0f, 1f),
-                                currentFile = file.name
-                            )
-                        }
-                    }
-                }
-
-                tempFile.renameTo(target)
                 downloadedSoFar += file.approxSize
                 Log.i(TAG, "Downloaded ${file.name} (${target.length()} bytes)")
             }

@@ -3,6 +3,7 @@ package com.example.instantvoicetranslate.translation
 import android.content.Context
 import android.util.Log
 import com.example.instantvoicetranslate.data.ModelStatus
+import com.example.instantvoicetranslate.data.downloadToFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,9 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,6 +37,18 @@ class NllbModelManager @Inject constructor(
 
         val MODEL_FILES: List<ModelFile> = listOf(
             ModelFile("encoder_model_quantized.onnx", 419_000_000L),
+            // Two separate decoder models for reliable inference on Android:
+            // 1) decoder_model: first step (no KV cache), computes cross-attention
+            //    from encoder_hidden_states and outputs both decoder + encoder KV.
+            // 2) decoder_with_past_model: subsequent steps (with KV cache), receives
+            //    both decoder and encoder past_key_values as input.
+            //
+            // The merged decoder (decoder_model_merged_quantized.onnx) crashes on
+            // Android ONNX Runtime due to the If-node's Reshape failure with
+            // zero-length encoder cross-attention KV tensors:
+            //   "Non-zero status code while running Reshape node
+            //    '/model/decoder/layers.0/encoder_attn/Reshape_4'"
+            // The two-model approach also avoids the 3-4x overhead of ONNX If nodes.
             ModelFile("decoder_model_quantized.onnx", 471_000_000L),
             ModelFile("decoder_with_past_model_quantized.onnx", 445_000_000L),
         )
@@ -95,65 +106,75 @@ class NllbModelManager @Inject constructor(
         _status.value = status
     }
 
+    /**
+     * Remove obsolete model files from previous approaches:
+     * - decoder_model_merged_quantized.onnx: merged decoder that crashed on Android
+     *   ONNX Runtime due to If-node Reshape errors with encoder cross-attention KV.
+     *   Replaced by separate decoder_model + decoder_with_past_model pair.
+     */
+    private fun cleanupObsoleteFiles(dir: File) {
+        val obsoleteFiles = listOf(
+            "decoder_model_merged_quantized.onnx",
+        )
+        for (fileName in obsoleteFiles) {
+            val file = File(dir, fileName)
+            if (file.exists()) {
+                val sizeBytes = file.length()
+                val deleted = file.delete()
+                Log.i(TAG, "Cleaned up obsolete $fileName: deleted=$deleted ($sizeBytes bytes freed)")
+            }
+        }
+    }
+
+    private fun resolveUrl(file: ModelFile): String =
+        if (file in MODEL_FILES) "$ONNX_BASE_URL/${file.name}" else "$TOKENIZER_BASE_URL/${file.name}"
+
+    /**
+     * Downloads a single file if it doesn't already exist.
+     * Returns `true` if the file was already present (skipped), `false` if downloaded.
+     */
+    private fun downloadFileIfNeeded(
+        file: ModelFile,
+        dir: File,
+        downloadedSoFar: Long,
+        totalSize: Long,
+    ): Boolean {
+        val target = File(dir, file.name)
+        if (target.exists() && target.length() > 0) return true
+
+        val url = resolveUrl(file)
+        Log.i(TAG, "Downloading ${file.name} from $url")
+
+        _status.value = ModelStatus.Downloading(
+            progress = downloadedSoFar.toFloat() / totalSize,
+            currentFile = file.name
+        )
+
+        downloadToFile(client, url, target) { fileDownloaded ->
+            val totalProgress = (downloadedSoFar + fileDownloaded).toFloat() / totalSize
+            _status.value = ModelStatus.Downloading(
+                progress = totalProgress.coerceIn(0f, 1f),
+                currentFile = file.name
+            )
+        }
+
+        Log.i(TAG, "Downloaded ${file.name} (${target.length()} bytes)")
+        return false
+    }
+
     private suspend fun downloadModel() = withContext(Dispatchers.IO) {
         try {
             val dir = getModelDir()
             dir.mkdirs()
 
+            cleanupObsoleteFiles(dir)
+
             val totalSize = ALL_FILES.sumOf { it.approxSize }
             var downloadedSoFar = 0L
 
             for (file in ALL_FILES) {
-                val target = File(dir, file.name)
-                if (target.exists() && target.length() > 0) {
-                    downloadedSoFar += file.approxSize
-                    continue
-                }
-
-                _status.value = ModelStatus.Downloading(
-                    progress = downloadedSoFar.toFloat() / totalSize,
-                    currentFile = file.name
-                )
-
-                val url = if (file in MODEL_FILES) {
-                    "$ONNX_BASE_URL/${file.name}"
-                } else {
-                    "$TOKENIZER_BASE_URL/${file.name}"
-                }
-
-                Log.i(TAG, "Downloading ${file.name} from $url")
-
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download ${file.name}: HTTP ${response.code}")
-                }
-
-                val body = response.body
-                val tempFile = File(dir, "${file.name}.tmp")
-
-                FileOutputStream(tempFile).use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var fileDownloaded = 0L
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            fileDownloaded += bytesRead
-                            val totalProgress =
-                                (downloadedSoFar + fileDownloaded).toFloat() / totalSize
-                            _status.value = ModelStatus.Downloading(
-                                progress = totalProgress.coerceIn(0f, 1f),
-                                currentFile = file.name
-                            )
-                        }
-                    }
-                }
-
-                tempFile.renameTo(target)
+                downloadFileIfNeeded(file, dir, downloadedSoFar, totalSize)
                 downloadedSoFar += file.approxSize
-                Log.i(TAG, "Downloaded ${file.name} (${target.length()} bytes)")
             }
 
             _status.value = ModelStatus.Ready

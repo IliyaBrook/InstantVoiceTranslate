@@ -18,6 +18,7 @@ import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.tts.TtsEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -45,8 +46,11 @@ class MainViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "MainViewModel"
+        /** Safety timeout: auto-clear isStarting if pipeline never reaches running state. */
+        private const val STARTING_TIMEOUT_MS = 30_000L
     }
 
+    val isStarting: StateFlow<Boolean> = translationUiState.isStarting
     val isRunning: StateFlow<Boolean> = translationUiState.isRunning
     val partialText: StateFlow<String> = translationUiState.partialText
     val originalText: StateFlow<String> = translationUiState.originalText
@@ -178,6 +182,8 @@ class MainViewModel @Inject constructor(
     }
 
     fun startTranslation() {
+        translationUiState.setStarting(true)
+        launchStartingTimeout()
         val intent = Intent(application, TranslationService::class.java).apply {
             action = TranslationService.ACTION_START
             putExtra(
@@ -195,6 +201,8 @@ class MainViewModel @Inject constructor(
      * calling startForeground(). This is required on Android 14+ (API 34).
      */
     fun startTranslationWithProjection(resultCode: Int, data: Intent) {
+        translationUiState.setStarting(true)
+        launchStartingTimeout()
         val intent = Intent(application, TranslationService::class.java).apply {
             action = TranslationService.ACTION_START
             putExtra(TranslationService.EXTRA_AUDIO_SOURCE, AudioCaptureManager.Source.SYSTEM_AUDIO.name)
@@ -202,6 +210,20 @@ class MainViewModel @Inject constructor(
             putExtra(TranslationService.EXTRA_PROJECTION_DATA, data)
         }
         application.startForegroundService(intent)
+    }
+
+    /**
+     * Safety net: if the pipeline never reaches running state within the timeout,
+     * clear isStarting to unblock the FAB.
+     */
+    private fun launchStartingTimeout() {
+        viewModelScope.launch {
+            delay(STARTING_TIMEOUT_MS)
+            if (translationUiState.isStarting.value) {
+                Log.w(TAG, "Starting timeout reached, clearing isStarting")
+                translationUiState.setStarting(false)
+            }
+        }
     }
 
     fun stopTranslation() {
