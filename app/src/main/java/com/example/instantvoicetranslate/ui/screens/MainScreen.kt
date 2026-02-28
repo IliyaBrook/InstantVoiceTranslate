@@ -6,11 +6,6 @@ import android.media.projection.MediaProjectionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -55,10 +51,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
@@ -178,9 +174,7 @@ fun MainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 16.dp),
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -297,90 +291,44 @@ fun MainScreen(
                 ModelStatus.Ready -> { /* Ready, no card needed */ }
             }
 
-            // Translated text (large)
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+            // --- Text sections (each scrollable, fill remaining space equally) ---
+
+            // Translation (always visible)
+            TextSection(
+                label = "Translation",
+                text = translatedText,
+                placeholder = "Press the mic button to start translating",
+                textStyle = MaterialTheme.typography.headlineSmall,
+                textColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+
+            // Original text
+            if (settings.showOriginalText) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                TextSection(
+                    label = "Original",
+                    text = originalText,
+                    placeholder = "...",
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                    textColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.weight(1f),
                 )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (translatedText.isBlank() && !isRunning) {
-                        Text(
-                            text = "Press the mic button to start translating",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
-                            textAlign = TextAlign.Center,
-                        )
-                    } else {
-                        Text(
-                            text = translatedText.ifBlank { "..." },
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Original text (smaller, italic)
-            AnimatedVisibility(
-                visible = settings.showOriginalText && originalText.isNotBlank(),
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Text(
-                        text = originalText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontStyle = FontStyle.Italic,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Partial ASR text (animated)
-            AnimatedVisibility(
-                visible = settings.showPartialText && isRunning && partialText.isNotBlank(),
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                val infiniteTransition = rememberInfiniteTransition(label = "partial")
-                val alpha by infiniteTransition.animateFloat(
-                    initialValue = 0.4f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(800),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "partialAlpha"
-                )
-
-                Text(
-                    text = partialText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .alpha(alpha)
-                        .padding(horizontal = 4.dp),
+            // Partial ASR
+            if (settings.showPartialText) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                TextSection(
+                    label = "Partial ASR",
+                    text = if (isRunning) partialText else "",
+                    placeholder = "...",
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    textColor = MaterialTheme.colorScheme.onSurface,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.weight(1f),
                 )
             }
 
@@ -391,7 +339,9 @@ fun MainScreen(
                 exit = fadeOut()
             ) {
                 Row(
-                    modifier = Modifier.padding(vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
                 ) {
@@ -409,6 +359,52 @@ fun MainScreen(
             }
 
             Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+        }
+    }
+}
+
+@Composable
+private fun TextSection(
+    label: String,
+    text: String,
+    placeholder: String,
+    textStyle: TextStyle,
+    textColor: Color,
+    containerColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(text) {
+        if (text.isNotBlank()) {
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = textColor.copy(alpha = 0.6f),
+                modifier = Modifier.padding(start = 12.dp, top = 8.dp, end = 12.dp),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(scrollState)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 4.dp),
+            ) {
+                Text(
+                    text = text.ifBlank { placeholder },
+                    style = textStyle,
+                    color = if (text.isBlank()) textColor.copy(alpha = 0.4f) else textColor,
+                )
+            }
         }
     }
 }
