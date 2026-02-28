@@ -48,9 +48,6 @@ object LanguageUtils {
         "ka" to "Georgian",
     )
 
-    /** Backward-compatible alias — returns online target languages. */
-    val targetLanguages: List<Pair<String, String>> get() = onlineTargetLanguages
-
     /** Returns the appropriate target language list based on the current mode. */
     fun targetLanguagesForMode(offlineMode: Boolean): List<Pair<String, String>> =
         if (offlineMode) offlineTargetLanguages else onlineTargetLanguages

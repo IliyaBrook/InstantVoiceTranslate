@@ -45,5 +45,4 @@ object NllbLanguageCodes {
     fun toNllb(isoCode: String): String =
         ISO_TO_NLLB[isoCode] ?: error("Unsupported language code: $isoCode")
 
-    fun isSupported(isoCode: String): Boolean = isoCode in ISO_TO_NLLB
 }
