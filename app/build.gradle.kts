@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.instantvoicetranslate"
         minSdk = 29 // Android 10 — required for AudioPlaybackCapture
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -67,6 +67,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
@@ -88,6 +89,14 @@ android {
         // onnxruntime-android:1.17.1 native lib is not 16KB-aligned, but the APK
         // uses libonnxruntime.so from sherpa-onnx.aar (via pickFirsts), not Maven.
         disable += "Unaligned16KbNativeLibs"
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "InstantVoiceTranslate-${defaultConfig.versionName}-${variant.buildType.name}.apk"
+        }
     }
 }
 

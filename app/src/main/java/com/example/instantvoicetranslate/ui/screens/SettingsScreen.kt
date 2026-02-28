@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.instantvoicetranslate.BuildConfig
 import com.example.instantvoicetranslate.R
 import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.ui.theme.ThemeMode
@@ -246,6 +247,16 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            // About
+            SectionHeader(stringResource(R.string.section_about))
+            Text(
+                text = stringResource(R.string.label_version, BuildConfig.VERSION_NAME),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
         }

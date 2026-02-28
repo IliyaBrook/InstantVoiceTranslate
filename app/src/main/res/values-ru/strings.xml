@@ -65,6 +65,10 @@
     <string name="section_app_language">Язык приложения</string>
     <string name="app_language_system">Системный по умолчанию</string>
 
+    <!-- About -->
+    <string name="section_about">О приложении</string>
+    <string name="label_version">Версия %1$s</string>
+
     <!-- Notification strings -->
     <string name="notification_title_paused">Перевод приостановлен</string>
     <string name="notification_title_active">Запись • Перевод</string>
