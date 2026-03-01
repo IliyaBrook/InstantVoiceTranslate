@@ -1,56 +1,58 @@
-# Instant Voice Translate (Streaming)
+# Instant Voice Translate
 
 Android app for real-time voice translation. Captures audio from microphone or system audio, recognizes speech locally
-on-device via Sherpa-ONNX, translates text through Yandex Translate API, and speaks the result via Android TTS.
+on-device via Sherpa-ONNX, translates text online (Yandex API) or offline (NLLB-200), and speaks the result via
+Android TTS.
 
 ## Overview
 
-The app implements a full voice translation pipeline running as an Android foreground service:
+The app runs a full voice translation pipeline as an Android foreground service:
 
 ```
-Audio input (microphone / system audio)
+Audio input (mic / system audio)
         |
-Streaming speech recognition (Sherpa-ONNX, offline)
+Streaming speech recognition (Sherpa-ONNX, on-device)
         |
-Neural translation (Yandex API + fallback backend)
+Translation -- online (Yandex API) or offline (NLLB-200)
         |
 Text-to-speech (Android TTS)
 ```
 
-Speech recognition runs entirely on-device without sending audio to a server. Text translation requires an internet
-connection.
+Speech recognition always runs on-device. Translation works in two modes: **online** (Yandex API, requires internet)
+or **offline** (NLLB-200-distilled-600M via ONNX Runtime, no internet needed after model download).
 
 ## Features
 
-- **Two audio sources** -- microphone (direct recording) and system audio (via AudioPlaybackCapture / MediaProjection)
-- **Offline speech recognition** -- streaming Zipformer models (Sherpa-ONNX), ~26--188 MB per language, auto-downloaded
-  from HuggingFace on first use
-- **Dual translation backend** -- primary Yandex Translate API, fallback `translate.toil.cc`, LRU cache (200 entries)
-- **Translation playback** -- Android TTS with Kotlin Channel-based queue, adjustable speed (0.5x--2.0x) and pitch
-- **Feedback loop prevention** -- microphone muting during TTS playback to prevent echo loops
-- **7 source languages** (speech recognition) -- English, Russian, Spanish, German, French, Chinese, Korean
-- **13 target languages** (translation) -- all 7 above plus Japanese, Portuguese, Italian, Turkish, Arabic, Hindi
-- **Foreground service** -- continues running in background, control via notification (pause/resume/stop)
-- **Partial results display** -- intermediate ASR text with real-time animation
-- **Display settings** -- toggle visibility of original text and partial ASR results
-- **Theming** -- system, light, dark; dynamic Material You colors on Android 12+
+- **Two audio sources** -- microphone and system audio (AudioPlaybackCapture / MediaProjection)
+- **Offline speech recognition** -- streaming Zipformer models (Sherpa-ONNX), 26--188 MB per language, auto-downloaded
+  from HuggingFace
+- **Dual translation backend**:
+	- **Online** -- Yandex Translate API + fallback, LRU cache (200 entries), 13 target languages
+	- **Offline** -- NLLB-200-distilled-600M via ONNX Runtime, ~1.3 GB download, 31 target languages, no internet needed
+- **TTS playback** -- Android TTS with queue, adjustable speed (0.5x--2.0x) and pitch
+- **Feedback loop prevention** -- microphone muting during TTS playback
+- **7 source languages** with ASR models, **up to 31 target languages** (offline mode)
+- **Foreground service** -- background operation, notification controls (pause/resume/stop)
+- **Parallel translation** -- up to 3 concurrent translations with ordered TTS delivery
+- **i18n** -- app UI available in English and Russian (Per-App Language Preferences)
+- **Theming** -- system / light / dark, Material You dynamic colors on Android 12+
 
 ## Tech Stack
 
-| Component          | Technology                                                          |
-|--------------------|---------------------------------------------------------------------|
-| Language           | Kotlin 2.1.20, JVM 17                                               |
-| UI                 | Jetpack Compose + Material 3 (BOM 2026.02.00)                       |
-| DI                 | Hilt 2.56.2 + KSP                                                   |
-| Async              | Kotlin Coroutines + Flow / StateFlow / Channel                      |
-| Speech Recognition | Sherpa-ONNX (local AAR, streaming zipformer models for 7 languages) |
-| Translation        | Yandex Translate API + fallback (OkHttp 5.3.2)                      |
-| Text-to-Speech     | Android TextToSpeech                                                |
-| Settings Storage   | DataStore Preferences                                               |
-| Navigation         | Navigation Compose 2.9.7                                            |
-| Build              | AGP 8.9.3, Gradle                                                   |
-| Min SDK            | 29 (Android 10)                                                     |
-| Target SDK         | 36                                                                  |
+| Component           | Technology                                     |
+|---------------------|------------------------------------------------|
+| Language            | Kotlin 2.1.20, JVM 17                          |
+| UI                  | Jetpack Compose + Material 3 (BOM 2026.02.01)  |
+| DI                  | Hilt 2.56.2 + KSP                              |
+| Async               | Kotlin Coroutines + Flow / StateFlow / Channel |
+| Speech Recognition  | Sherpa-ONNX (local AAR, streaming Zipformer)   |
+| Online Translation  | Yandex Translate API + fallback (OkHttp 5.3.2) |
+| Offline Translation | NLLB-200-distilled-600M (ONNX Runtime 1.17.1)  |
+| Text-to-Speech      | Android TextToSpeech                           |
+| Settings Storage    | DataStore Preferences                          |
+| Navigation          | Navigation Compose 2.9.7                       |
+| Build               | AGP 8.9.3, Gradle                              |
+| Min / Target SDK    | 29 (Android 10) / 36                           |
 
 ## Requirements
 
@@ -62,80 +64,88 @@ connection.
 ## Build & Run
 
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd instant-voice-translate
-
-# Build debug APK
+# Debug APK
 ./gradlew assembleDebug
 
 # Install on connected device
 ./gradlew installDebug
 
-# Full build with lint checks
+# Full build with lint
 ./gradlew build
 
-# Release APK / AAB
+# Release APK / AAB (requires keystore.properties)
 ./gradlew assembleRelease
 ./gradlew bundleRelease
 ```
 
-> **Note:** The file `app/libs/sherpa-onnx.aar` must be present in the repository. It is a local dependency for the
-> Sherpa-ONNX speech recognition library.
+> **Note:** `app/libs/sherpa-onnx.aar` must be present -- it is a local dependency for Sherpa-ONNX speech recognition.
 
-## Important: Headphones Recommended
+## Headphones Recommended
 
-> **We strongly recommend using headphones when translating from the microphone.**
->
-> Without headphones, the ASR model picks up the TTS playback (its own translated speech) through the device speaker and
-> tries to recognize it as new input. This creates a feedback loop where the app keeps re-translating its own output.
->
-> There are two ways to handle this:
-> - **Use headphones** (recommended) -- TTS audio goes to your ears only, and the microphone hears only the original
-    speaker.
-> - **Enable "Mute mic during TTS"** in Settings -- the microphone is silenced while translations are being spoken. This
-    prevents the feedback loop but means any speech occurring during TTS playback will not be captured, so you may miss
-    parts of the conversation.
+> When using microphone mode, **use headphones** to prevent feedback loops. Without them, the ASR model picks up
+> TTS playback and re-translates its own output. Alternatively, enable "Mute mic during TTS" in Settings (may cause
+> missed speech segments).
 
 ## Supported Languages
 
-Source languages require a local speech recognition model (~26--188 MB, downloaded on first use). Target languages use
-the Yandex Translate API and require only an internet connection.
+Source languages require a local ASR model (26--188 MB, auto-downloaded). Target language availability depends on
+translation mode.
 
-| Language   | Code | Source (speech recognition) | Target (translation) |
-|------------|------|-----------------------------|----------------------|
-| English    | en   | yes                         | yes                  |
-| Russian    | ru   | yes                         | yes                  |
-| Spanish    | es   | yes                         | yes                  |
-| German     | de   | yes                         | yes                  |
-| French     | fr   | yes                         | yes                  |
-| Chinese    | zh   | yes                         | yes                  |
-| Korean     | ko   | yes                         | yes                  |
-| Japanese   | ja   | --                          | yes                  |
-| Portuguese | pt   | --                          | yes                  |
-| Italian    | it   | --                          | yes                  |
-| Turkish    | tr   | --                          | yes                  |
-| Arabic     | ar   | --                          | yes                  |
-| Hindi      | hi   | --                          | yes                  |
-
-Source language support depends on the availability of a streaming Sherpa-ONNX ASR model. Adding a new source language
-requires adding its model configuration to `ModelDownloader.kt`.
+| Language   | Code | Source (ASR) | Target: Online | Target: Offline |
+|------------|------|--------------|----------------|-----------------|
+| English    | en   | yes          | yes            | yes             |
+| Russian    | ru   | yes          | yes            | yes             |
+| Spanish    | es   | yes          | yes            | yes             |
+| German     | de   | yes          | yes            | yes             |
+| French     | fr   | yes          | yes            | yes             |
+| Chinese    | zh   | yes          | yes            | yes             |
+| Korean     | ko   | yes          | yes            | yes             |
+| Japanese   | ja   | --           | yes            | yes             |
+| Portuguese | pt   | --           | yes            | yes             |
+| Italian    | it   | --           | yes            | yes             |
+| Turkish    | tr   | --           | yes            | yes             |
+| Arabic     | ar   | --           | yes            | yes             |
+| Hindi      | hi   | --           | yes            | yes             |
+| Ukrainian  | uk   | --           | --             | yes             |
+| Polish     | pl   | --           | --             | yes             |
+| Dutch      | nl   | --           | --             | yes             |
+| Swedish    | sv   | --           | --             | yes             |
+| Czech      | cs   | --           | --             | yes             |
+| Romanian   | ro   | --           | --             | yes             |
+| Hungarian  | hu   | --           | --             | yes             |
+| Greek      | el   | --           | --             | yes             |
+| Danish     | da   | --           | --             | yes             |
+| Finnish    | fi   | --           | --             | yes             |
+| Norwegian  | no   | --           | --             | yes             |
+| Thai       | th   | --           | --             | yes             |
+| Vietnamese | vi   | --           | --             | yes             |
+| Indonesian | id   | --           | --             | yes             |
+| Malay      | ms   | --           | --             | yes             |
+| Hebrew     | he   | --           | --             | yes             |
+| Bulgarian  | bg   | --           | --             | yes             |
+| Georgian   | ka   | --           | --             | yes             |
 
 ## Usage
 
-1. On first launch the app automatically downloads the ASR model (~26--188 MB depending on language) from HuggingFace.
-   Download progress is displayed on the main screen.
-2. Select the audio source: **Microphone** or **System Audio**.
-3. Tap the microphone FAB to start translation.
-	- Selecting System Audio requires screen capture permission (MediaProjection).
-4. Translated text appears on the main card; the original phrase is shown below in italics.
+1. On first launch, the app downloads the ASR model for the selected source language from HuggingFace.
+2. Select audio source: **Microphone** or **System Audio**.
+3. Tap the microphone button to start translation. System Audio requires screen capture permission.
+4. Translated text appears on the main card; original phrase shown below.
 5. Control via notification: pause, resume, stop.
-6. Settings are accessible via the gear icon in the top bar.
 
-### Settings Screen
+### Offline Translation Setup
 
-- **Languages** -- source language (7 languages with ASR models) and target language (13 languages via translation API)
-- **Text-to-Speech** -- speech rate, pitch, auto-playback, microphone muting during TTS
+1. Open Settings and scroll to **Offline Translation**.
+2. Tap **Download** to get the NLLB-200 model (~1.3 GB, 5 files from HuggingFace).
+3. Once downloaded, toggle **Offline mode** on. The target language list expands to 31 languages.
+4. The model uses ~900 MB RAM when loaded.
+
+### Settings
+
+- **App Language** -- English, Russian, or system default
+- **Languages** -- source (7 with ASR) and target (13 online / 31 offline)
+- **Offline Translation** -- download/delete NLLB model, toggle offline mode
+- **TTS** -- speech rate, pitch, auto-playback, mic muting during TTS
 - **Display** -- show/hide original text and partial ASR results
 - **Theme** -- system / light / dark
 
@@ -144,15 +154,16 @@ requires adding its model configuration to `ModelDownloader.kt`.
 ```
 app/src/main/java/com/example/instantvoicetranslate/
 |
-|-- MainActivity.kt                    # Activity, navigation, permission requests
+|-- MainActivity.kt                    # Activity, navigation, permissions
 |-- InstantVoiceTranslateApp.kt        # Application, notification channel
 |
 |-- asr/
-|   |-- SpeechRecognizer.kt            # Speech recognition interface
+|   |-- SpeechRecognizer.kt            # ASR interface
 |   |-- SherpaOnnxRecognizer.kt        # Sherpa-ONNX Zipformer implementation
 |
 |-- audio/
-|   |-- AudioCaptureManager.kt         # Audio capture: microphone and system audio
+|   |-- AudioCaptureManager.kt         # Mic and system audio capture
+|   |-- AudioDiagnostics.kt            # Raw audio WAV recording (debug)
 |
 |-- data/
 |   |-- TranslationUiState.kt          # Singleton UI state (StateFlow)
@@ -160,26 +171,31 @@ app/src/main/java/com/example/instantvoicetranslate/
 |   |-- ModelDownloader.kt             # ASR model download from HuggingFace
 |
 |-- di/
-|   |-- AppModule.kt                   # Hilt module with interface bindings
+|   |-- AppModule.kt                   # Hilt bindings
 |
 |-- service/
-|   |-- TranslationService.kt          # Foreground service, pipeline orchestration
+|   |-- TranslationService.kt          # Foreground service, pipeline orchestrator
 |
 |-- translation/
-|   |-- TextTranslator.kt              # Text translation interface
-|   |-- FreeTranslator.kt              # Yandex API + fallback, LRU cache
+|   |-- TextTranslator.kt              # Translation interface
+|   |-- FreeTranslator.kt              # Online: Yandex API + fallback, LRU cache
+|   |-- NllbTranslator.kt              # Offline: NLLB-200 via ONNX Runtime
+|   |-- NllbModelManager.kt            # NLLB model download and lifecycle
+|   |-- NllbTokenizer.kt               # SentencePiece tokenizer for NLLB
+|   |-- SentencePieceBpe.kt            # Pure Kotlin BPE tokenizer (no native deps)
+|   |-- NllbLanguageCodes.kt           # ISO 639-1 to NLLB code mapping
 |
 |-- tts/
-|   |-- TtsEngine.kt                   # Android TTS with queue and state tracking
+|   |-- TtsEngine.kt                   # Android TTS with queue
 |
 |-- ui/
     |-- screens/
-    |   |-- MainScreen.kt              # Main screen: translation, model status
+    |   |-- MainScreen.kt              # Main screen: translation display
     |   |-- SettingsScreen.kt          # Settings screen
     |-- theme/
-    |   |-- Theme.kt                   # Material 3, dynamic colors, ThemeMode
+    |   |-- Theme.kt                   # Material 3, dynamic colors
     |-- utils/
-    |   |-- LanguageUtils.kt           # Source/target language lists, display names
+    |   |-- LanguageUtils.kt           # Language lists and display names
     |-- viewmodel/
         |-- MainViewModel.kt           # Main screen ViewModel
         |-- SettingsViewModel.kt       # Settings ViewModel
@@ -187,46 +203,45 @@ app/src/main/java/com/example/instantvoicetranslate/
 
 ## Architecture
 
-The app follows the **MVVM** pattern with a foreground service as the central orchestrator:
+MVVM with a foreground service as the central orchestrator:
 
 ```
-UI (Compose)  <-->  ViewModel  <-->  TranslationUiState (singleton)
+UI (Compose)  <-->  ViewModel  <-->  TranslationUiState (singleton StateFlow)
                                             ^
                                             |
                                     TranslationService (foreground)
                                             |
                         +-------------------+-------------------+
                         |                   |                   |
-                AudioCaptureManager  SherpaOnnxRecognizer  FreeTranslator
-                (mic / system audio)  (streaming ASR)      (Yandex + fallback)
-                                                                |
-                                                            TtsEngine
-                                                        (playback queue)
+                AudioCaptureManager  SherpaOnnxRecognizer  TextTranslator
+                (mic / system audio)  (streaming ASR)      |             |
+                                                     FreeTranslator  NllbTranslator
+                                                     (online)       (offline/ONNX)
+                                                           |
+                                                       TtsEngine
+                                                   (playback queue)
 ```
 
-**Key decisions:**
-
-- `TranslationUiState` -- a singleton with `StateFlow` fields shared across the service, ViewModel, and UI. Bridges the
-  foreground service and Compose UI without binding to the Activity lifecycle.
-- `TranslationService` manages the full pipeline: starts audio capture, feeds the stream to the recognizer, sends
-  segments for translation, and plays back results.
-- Audio is delivered in ~100 ms chunks (1600 samples, 16 kHz, mono, PCM 16-bit).
-- TTS uses a `Channel`-based queue for sequential playback and `isSpeaking: StateFlow` to prevent feedback loops.
-- DI via a single Hilt module `AppModule` with bindings from `SpeechRecognizer` and `TextTranslator` interfaces to
-  concrete implementations.
+- **TranslationUiState** -- singleton StateFlow bridging the foreground service and Compose UI without Activity
+  lifecycle binding. Keeps a rolling history of last 10 segments.
+- **TranslationService** -- manages audio capture, ASR, translation (parallel, up to 3 concurrent), and TTS.
+  Selects `FreeTranslator` or `NllbTranslator` based on the offline mode setting.
+- **NllbTranslator** -- uses two separate decoder ONNX models (no-cache + with-past) to avoid an Android ONNX Runtime
+  crash with the merged decoder's If-node. Pure Kotlin SentencePiece BPE tokenizer (no native dependencies).
+- **TtsEngine** -- Channel-based queue for sequential playback; `isSpeaking` StateFlow prevents feedback loops.
 
 ## Permissions
 
-| Permission                            | Purpose                                          |
-|---------------------------------------|--------------------------------------------------|
-| `RECORD_AUDIO`                        | Microphone recording                             |
-| `FOREGROUND_SERVICE`                  | Running the service in background                |
-| `FOREGROUND_SERVICE_MICROPHONE`       | Foreground service type for microphone           |
-| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Foreground service type for system audio capture |
-| `POST_NOTIFICATIONS`                  | Notifications (Android 13+)                      |
-| `INTERNET`                            | Translation API and model download               |
-| `ACCESS_NETWORK_STATE`                | Network state check                              |
-| `WAKE_LOCK`                           | Prevent sleep while service is running           |
+| Permission                            | Purpose                                |
+|---------------------------------------|----------------------------------------|
+| `RECORD_AUDIO`                        | Microphone recording                   |
+| `FOREGROUND_SERVICE`                  | Background service operation           |
+| `FOREGROUND_SERVICE_MICROPHONE`       | Foreground service type: microphone    |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Foreground service type: system audio  |
+| `POST_NOTIFICATIONS`                  | Notifications (Android 13+)            |
+| `INTERNET`                            | Translation API and model downloads    |
+| `ACCESS_NETWORK_STATE`                | Network availability check             |
+| `WAKE_LOCK`                           | Prevent sleep during service operation |
 
 ## Default Configuration
 
@@ -235,6 +250,7 @@ UI (Compose)  <-->  ViewModel  <-->  TranslationUiState (singleton)
 | Source language        | English (en) |
 | Target language        | Russian (ru) |
 | Audio source           | Microphone   |
+| Translation mode       | Online       |
 | TTS speed              | 1.0x         |
 | TTS pitch              | 1.0x         |
 | Auto-playback          | Enabled      |
