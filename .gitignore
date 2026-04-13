@@ -24,3 +24,4 @@ captures/
 # Claude Code local settings
 .claude/hooks/data
 .claude/settings.local.json
+cheatsheets
