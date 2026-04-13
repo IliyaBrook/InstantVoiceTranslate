@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Мгновенный голосовой перевод</string>
+    <string name="app_name">VoiceTranslate</string>
 
     <!-- Main Screen -->
     <string name="action_settings">Настройки</string>
