@@ -42,9 +42,9 @@ or **offline** (NLLB-200-distilled-600M via ONNX Runtime, no internet needed aft
 
 | Component           | Technology                                     |
 |---------------------|------------------------------------------------|
-| Language            | Kotlin 2.1.20, JVM 17                          |
-| UI                  | Jetpack Compose + Material 3 (BOM 2026.02.01)  |
-| DI                  | Hilt 2.56.2 + KSP                              |
+| Language            | Kotlin (built-in AGP 9.1), JVM 17              |
+| UI                  | Jetpack Compose + Material 3 (BOM 2026.03.01)  |
+| DI                  | Hilt 2.59.2 + KSP 2.3.6                        |
 | Async               | Kotlin Coroutines + Flow / StateFlow / Channel |
 | Speech Recognition  | Sherpa-ONNX (local AAR, streaming Zipformer)   |
 | Online Translation  | Yandex Translate API + fallback (OkHttp 5.3.2) |
@@ -52,7 +52,7 @@ or **offline** (NLLB-200-distilled-600M via ONNX Runtime, no internet needed aft
 | Text-to-Speech      | Android TextToSpeech                           |
 | Settings Storage    | DataStore Preferences                          |
 | Navigation          | Navigation Compose 2.9.7                       |
-| Build               | AGP 8.9.3, Gradle                              |
+| Build               | AGP 9.1.1, Gradle 9.4.1                        |
 | Min / Target SDK    | 29 (Android 10) / 36                           |
 
 ## Requirements

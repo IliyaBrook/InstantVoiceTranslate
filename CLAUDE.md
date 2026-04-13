@@ -22,9 +22,10 @@ Release builds require `keystore.properties` in the project root (not committed)
 
 ## Tech Stack
 
-- **Language**: Kotlin 2.1.20, JVM 17
-- **UI**: Jetpack Compose with Material 3 (Compose BOM 2026.02.01)
-- **DI**: Hilt 2.56.2 with KSP (pinned — Hilt 2.59.2 requires AGP 9.0+)
+- **Language**: Kotlin (built-in AGP 9.1, Compose plugin 2.3.20), JVM 17
+- **UI**: Jetpack Compose with Material 3 (Compose BOM 2026.03.01)
+- **DI**: Hilt 2.59.2 with KSP 2.3.6
+- **Build**: AGP 9.1.1, Gradle 9.4.1
 - **Async**: Kotlin Coroutines + Flow/StateFlow/Channel
 - **Storage**: DataStore Preferences
 - **HTTP**: OkHttp 5.3.2

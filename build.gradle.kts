@@ -1,12 +1,8 @@
 plugins {
-    //noinspection GradleDependency
-    id("com.android.application") version "8.13.2" apply false
-    //noinspection GradleDependency
-    id("org.jetbrains.kotlin.android") version "2.1.20" apply false
-    //noinspection GradleDependency
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.20" apply false
-    //noinspection GradleDependency — Hilt 2.59.2 requires AGP 9.0+, incompatible with current AGP 8.9.3
-    id("com.google.dagger.hilt.android") version "2.56.2" apply false
-    //noinspection GradleDependency
-    id("com.google.devtools.ksp") version "2.1.20-1.0.32" apply false
+    id("com.android.application") version "9.1.1" apply false
+    // Kotlin is built-in to AGP 9.0+ — org.jetbrains.kotlin.android is no longer needed.
+    // Compose compiler plugin is still applied separately.
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.20" apply false
+    id("com.google.dagger.hilt.android") version "2.59.2" apply false
+    id("com.google.devtools.ksp") version "2.3.6" apply false
 }
