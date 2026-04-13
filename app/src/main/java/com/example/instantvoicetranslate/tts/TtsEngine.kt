@@ -2,6 +2,8 @@ package com.example.instantvoicetranslate.tts
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
+import kotlin.time.Duration.Companion.milliseconds
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,6 +62,11 @@ class TtsEngine @Inject constructor(
     private val utteranceId = AtomicInteger(0)
     private var currentDeferred: CompletableDeferred<Unit>? = null
 
+    // --- Audio ducking ---
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var duckingEnabled = true
+    private var audioFocusRequest: AudioFocusRequest? = null
+
     /**
      * Unlimited channel: all segments are queued and spoken in order.
      * Nothing is dropped — every translated segment will be read aloud.
@@ -98,22 +106,26 @@ class TtsEngine @Inject constructor(
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
                         _isSpeaking.value = true
+                        requestAudioFocus()
                     }
 
                     override fun onDone(utteranceId: String?) {
                         _isSpeaking.value = false
+                        releaseAudioFocus()
                         currentDeferred?.complete(Unit)
                     }
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
                         _isSpeaking.value = false
+                        releaseAudioFocus()
                         currentDeferred?.complete(Unit)
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
                         Log.e(TAG, "TTS error: $errorCode")
                         _isSpeaking.value = false
+                        releaseAudioFocus()
                         currentDeferred?.complete(Unit)
                     }
                 })
@@ -144,6 +156,7 @@ class TtsEngine @Inject constructor(
     fun stop() {
         tts?.stop()
         _isSpeaking.value = false
+        releaseAudioFocus()
         currentDeferred?.complete(Unit)
         // Drain the queue
         while (speechQueue.tryReceive().isSuccess) { /* discard */ }
@@ -155,6 +168,41 @@ class TtsEngine @Inject constructor(
 
     fun setPitch(pitch: Float) {
         tts?.setPitch(pitch.coerceIn(0.5f, 2.0f))
+    }
+
+    fun setDuckingEnabled(enabled: Boolean) {
+        duckingEnabled = enabled
+        if (!enabled) releaseAudioFocus()
+    }
+
+    private fun requestAudioFocus() {
+        if (!duckingEnabled) return
+        if (audioFocusRequest != null) return // already held
+
+        val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .build()
+
+        val result = audioManager.requestAudioFocus(focusRequest)
+        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            audioFocusRequest = focusRequest
+            Log.d(TAG, "Audio focus acquired (ducking)")
+        } else {
+            Log.w(TAG, "Audio focus request denied: $result")
+        }
+    }
+
+    private fun releaseAudioFocus() {
+        audioFocusRequest?.let { request ->
+            audioManager.abandonAudioFocusRequest(request)
+            audioFocusRequest = null
+            Log.d(TAG, "Audio focus released")
+        }
     }
 
     private fun startQueueProcessor() {
@@ -178,7 +226,7 @@ class TtsEngine @Inject constructor(
         // QUEUE_ADD appends to the TTS queue — nothing is interrupted or lost.
         engine.speak(text, TextToSpeech.QUEUE_ADD, null, id)
 
-        withTimeoutOrNull(UTTERANCE_TIMEOUT_MS) {
+        withTimeoutOrNull(UTTERANCE_TIMEOUT_MS.milliseconds) {
             deferred.await()
         } ?: run {
             Log.w(TAG, "TTS utterance timed out: $id")

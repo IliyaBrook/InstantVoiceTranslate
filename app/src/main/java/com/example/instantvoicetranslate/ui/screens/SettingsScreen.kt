@@ -158,6 +158,12 @@ fun SettingsScreen(
                 onCheckedChange = { viewModel.updateMuteMicDuringTts(it) }
             )
 
+            SwitchSetting(
+                label = stringResource(R.string.label_duck_audio),
+                checked = settings.duckAudio,
+                onCheckedChange = { viewModel.updateDuckAudio(it) }
+            )
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // Display settings

@@ -29,7 +29,8 @@ or **offline** (NLLB-200-distilled-600M via ONNX Runtime, no internet needed aft
 - **Dual translation backend**:
 	- **Online** -- Yandex Translate API + fallback, LRU cache (200 entries), 13 target languages
 	- **Offline** -- NLLB-200-distilled-600M via ONNX Runtime, ~1.3 GB download, 31 target languages, no internet needed
-- **TTS playback** -- Android TTS with queue, adjustable speed (0.5x--2.0x) and pitch
+- **TTS playback** -- Android TTS with queue, adjustable speed (0.5x--2.0x) and pitch, audio ducking
+  (automatically lowers other apps' volume during speech)
 - **Feedback loop prevention** -- microphone muting during TTS playback
 - **7 source languages** with ASR models, **up to 31 target languages** (offline mode)
 - **Foreground service** -- background operation, notification controls (pause/resume/stop)
@@ -145,7 +146,7 @@ translation mode.
 - **App Language** -- English, Russian, or system default
 - **Languages** -- source (7 with ASR) and target (13 online / 31 offline)
 - **Offline Translation** -- download/delete NLLB model, toggle offline mode
-- **TTS** -- speech rate, pitch, auto-playback, mic muting during TTS
+- **TTS** -- speech rate, pitch, auto-playback, mic muting during TTS, audio ducking
 - **Display** -- show/hide original text and partial ASR results
 - **Theme** -- system / light / dark
 
@@ -255,4 +256,5 @@ UI (Compose)  <-->  ViewModel  <-->  TranslationUiState (singleton StateFlow)
 | TTS pitch              | 1.0x         |
 | Auto-playback          | Enabled      |
 | Mute microphone on TTS | Disabled     |
+| Audio ducking          | Enabled      |
 | Theme                  | System       |

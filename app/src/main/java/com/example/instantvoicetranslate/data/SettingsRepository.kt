@@ -29,6 +29,8 @@ data class AppSettings(
     val showPartialText: Boolean = true,
     val autoSpeak: Boolean = true,
     val muteMicDuringTts: Boolean = false,
+    /** Request audio focus with ducking so other apps lower their volume during TTS. */
+    val duckAudio: Boolean = true,
     /** Record raw audio to WAV files for debugging (off by default). */
     val audioDiagnostics: Boolean = false,
     /** Custom output directory for diagnostic WAV files (empty = default). */
@@ -51,6 +53,7 @@ class SettingsRepository @Inject constructor(
         private val KEY_SHOW_PARTIAL = booleanPreferencesKey("show_partial_text")
         private val KEY_AUTO_SPEAK = booleanPreferencesKey("auto_speak")
         private val KEY_MUTE_MIC_DURING_TTS = booleanPreferencesKey("mute_mic_during_tts")
+        private val KEY_DUCK_AUDIO = booleanPreferencesKey("duck_audio")
         private val KEY_AUDIO_DIAGNOSTICS = booleanPreferencesKey("audio_diagnostics")
         private val KEY_DIAG_OUTPUT_DIR = stringPreferencesKey("diag_output_dir")
         private val KEY_OFFLINE_MODE = booleanPreferencesKey("offline_mode")
@@ -74,6 +77,7 @@ class SettingsRepository @Inject constructor(
             showPartialText = prefs[KEY_SHOW_PARTIAL] ?: true,
             autoSpeak = prefs[KEY_AUTO_SPEAK] ?: true,
             muteMicDuringTts = prefs[KEY_MUTE_MIC_DURING_TTS] ?: false,
+            duckAudio = prefs[KEY_DUCK_AUDIO] ?: true,
             audioDiagnostics = prefs[KEY_AUDIO_DIAGNOSTICS] ?: false,
             diagOutputDir = prefs[KEY_DIAG_OUTPUT_DIR] ?: "",
             offlineMode = prefs[KEY_OFFLINE_MODE] ?: false,
@@ -118,6 +122,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun updateMuteMicDuringTts(mute: Boolean) {
         context.dataStore.edit { it[KEY_MUTE_MIC_DURING_TTS] = mute }
+    }
+
+    suspend fun updateDuckAudio(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_DUCK_AUDIO] = enabled }
     }
 
     suspend fun updateAudioDiagnostics(enabled: Boolean) {
