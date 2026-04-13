@@ -82,6 +82,7 @@ android {
         }
         jniLibs {
             pickFirsts += "lib/*/libonnxruntime.so"
+            useLegacyPackaging = true
         }
     }
 

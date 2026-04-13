@@ -1,6 +1,6 @@
 plugins {
     //noinspection GradleDependency
-    id("com.android.application") version "8.9.3" apply false
+    id("com.android.application") version "8.13.2" apply false
     //noinspection GradleDependency
     id("org.jetbrains.kotlin.android") version "2.1.20" apply false
     //noinspection GradleDependency
