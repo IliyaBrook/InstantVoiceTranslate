@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -62,8 +63,9 @@ class TtsEngine @Inject constructor(
     private val utteranceId = AtomicInteger(0)
     private var currentDeferred: CompletableDeferred<Unit>? = null
 
-    // --- Audio ducking ---
+    // --- Volume & audio ducking ---
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var volume = 1.0f
     private var duckingEnabled = true
     private var audioFocusRequest: AudioFocusRequest? = null
 
@@ -170,6 +172,10 @@ class TtsEngine @Inject constructor(
         tts?.setPitch(pitch.coerceIn(0.5f, 2.0f))
     }
 
+    fun setVolume(vol: Float) {
+        volume = vol.coerceIn(0.0f, 1.0f)
+    }
+
     fun setDuckingEnabled(enabled: Boolean) {
         duckingEnabled = enabled
         if (!enabled) releaseAudioFocus()
@@ -224,7 +230,10 @@ class TtsEngine @Inject constructor(
         currentDeferred = deferred
 
         // QUEUE_ADD appends to the TTS queue — nothing is interrupted or lost.
-        engine.speak(text, TextToSpeech.QUEUE_ADD, null, id)
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume)
+        }
+        engine.speak(text, TextToSpeech.QUEUE_ADD, params, id)
 
         withTimeoutOrNull(UTTERANCE_TIMEOUT_MS.milliseconds) {
             deferred.await()

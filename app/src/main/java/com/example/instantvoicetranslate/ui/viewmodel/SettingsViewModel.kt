@@ -97,6 +97,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.updateTtsPitch(pitch) }
     }
 
+    fun updateTtsVolume(volume: Float) {
+        viewModelScope.launch { settingsRepository.updateTtsVolume(volume) }
+    }
+
     fun updateThemeMode(mode: ThemeMode) {
         viewModelScope.launch { settingsRepository.updateThemeMode(mode) }
     }

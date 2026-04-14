@@ -35,6 +35,7 @@
     <string name="label_pitch">Pitch</string>
     <string name="label_auto_speak">Auto-speak translations</string>
     <string name="label_mute_mic_during_tts">Mute mic during TTS</string>
+    <string name="label_tts_volume">Translation volume</string>
     <string name="label_duck_audio">Lower other apps\' volume during TTS</string>
     <string name="section_display">Display</string>
     <string name="label_show_original_text">Show original text</string>

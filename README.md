@@ -256,5 +256,5 @@ UI (Compose)  <-->  ViewModel  <-->  TranslationUiState (singleton StateFlow)
 | TTS pitch              | 1.0x         |
 | Auto-playback          | Enabled      |
 | Mute microphone on TTS | Disabled     |
-| Audio ducking          | Enabled      |
+| Audio ducking          | Disabled     |
 | Theme                  | System       |

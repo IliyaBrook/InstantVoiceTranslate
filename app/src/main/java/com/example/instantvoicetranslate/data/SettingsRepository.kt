@@ -24,13 +24,15 @@ data class AppSettings(
     val targetLanguage: String = "ru",
     val ttsSpeed: Float = 1.0f,
     val ttsPitch: Float = 1.0f,
+    /** TTS volume relative to system stream volume (0.0–1.0). */
+    val ttsVolume: Float = 1.0f,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val showOriginalText: Boolean = true,
     val showPartialText: Boolean = true,
     val autoSpeak: Boolean = true,
     val muteMicDuringTts: Boolean = false,
     /** Request audio focus with ducking so other apps lower their volume during TTS. */
-    val duckAudio: Boolean = true,
+    val duckAudio: Boolean = false,
     /** Record raw audio to WAV files for debugging (off by default). */
     val audioDiagnostics: Boolean = false,
     /** Custom output directory for diagnostic WAV files (empty = default). */
@@ -48,6 +50,7 @@ class SettingsRepository @Inject constructor(
         private val KEY_TARGET_LANG = stringPreferencesKey("target_language")
         private val KEY_TTS_SPEED = floatPreferencesKey("tts_speed")
         private val KEY_TTS_PITCH = floatPreferencesKey("tts_pitch")
+        private val KEY_TTS_VOLUME = floatPreferencesKey("tts_volume")
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         private val KEY_SHOW_ORIGINAL = booleanPreferencesKey("show_original_text")
         private val KEY_SHOW_PARTIAL = booleanPreferencesKey("show_partial_text")
@@ -69,6 +72,7 @@ class SettingsRepository @Inject constructor(
             targetLanguage = prefs[KEY_TARGET_LANG] ?: "ru",
             ttsSpeed = prefs[KEY_TTS_SPEED] ?: 1.0f,
             ttsPitch = prefs[KEY_TTS_PITCH] ?: 1.0f,
+            ttsVolume = prefs[KEY_TTS_VOLUME] ?: 1.0f,
             themeMode = prefs[KEY_THEME_MODE]?.let {
                 try { ThemeMode.valueOf(it) }
                 catch (_: Exception) { ThemeMode.SYSTEM }
@@ -102,6 +106,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun updateTtsPitch(pitch: Float) {
         context.dataStore.edit { it[KEY_TTS_PITCH] = pitch }
+    }
+
+    suspend fun updateTtsVolume(volume: Float) {
+        context.dataStore.edit { it[KEY_TTS_VOLUME] = volume }
     }
 
     suspend fun updateThemeMode(mode: ThemeMode) {

@@ -225,6 +225,7 @@ class TranslationService : Service() {
                 ttsEngine.initialize(ttsLocale)
                 ttsEngine.setSpeechRate(settings.ttsSpeed)
                 ttsEngine.setPitch(settings.ttsPitch)
+                ttsEngine.setVolume(settings.ttsVolume)
                 ttsEngine.setDuckingEnabled(settings.duckAudio)
 
                 uiState.setRunning(true)

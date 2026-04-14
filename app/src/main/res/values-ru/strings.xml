@@ -35,6 +35,7 @@
     <string name="label_pitch">Тон</string>
     <string name="label_auto_speak">Автоозвучивание переводов</string>
     <string name="label_mute_mic_during_tts">Отключать микрофон при озвучке</string>
+    <string name="label_tts_volume">Громкость перевода</string>
     <string name="label_duck_audio">Приглушать другие приложения при озвучке</string>
     <string name="section_display">Отображение</string>
     <string name="label_show_original_text">Показывать оригинальный текст</string>

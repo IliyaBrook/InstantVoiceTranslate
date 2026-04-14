@@ -146,6 +146,13 @@ fun SettingsScreen(
                 onValueChange = { viewModel.updateTtsPitch(it) }
             )
 
+            SliderSetting(
+                label = stringResource(R.string.label_tts_volume),
+                value = settings.ttsVolume,
+                valueRange = 0.1f..1.0f,
+                onValueChange = { viewModel.updateTtsVolume(it) }
+            )
+
             SwitchSetting(
                 label = stringResource(R.string.label_auto_speak),
                 checked = settings.autoSpeak,
