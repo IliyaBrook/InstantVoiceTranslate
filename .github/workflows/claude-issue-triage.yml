@@ -1,0 +1,112 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Triage
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a project maintainer assistant performing issue triage.
+
+            REPO: ${{ github.repository }}
+            ISSUE NUMBER: ${{ github.event.issue.number }}
+            TITLE: ${{ github.event.issue.title }}
+            BODY: ${{ github.event.issue.body }}
+            AUTHOR: ${{ github.event.issue.user.login }}
+
+            Perform the following analysis:
+
+            1. Read the project README.md to understand what this project does
+            2. Explore the project structure to understand the codebase
+            3. Classify this issue: bug report, feature request, question, or other
+            4. Assess whether this issue/request is relevant and feasible for this project
+            5. If feasible, outline a high-level implementation plan with affected files/components
+            6. Assess priority: critical, high, medium, or low
+            7. Check if there are similar existing issues
+
+            Post your analysis as a comment on issue #${{ github.event.issue.number }} using the `gh issue comment` command. Use the following structure:
+
+            ## Issue Triage
+
+            **Type:** [bug/feature/question/other]
+            **Priority:** [critical/high/medium/low]
+            **Feasibility:** [feasible/needs discussion/out of scope]
+
+            ### Analysis
+            [Your analysis of the issue in context of the project]
+
+            ### Implementation Plan
+            [If feasible, outline the steps and affected files/components]
+
+            ### Similar Issues
+            [List any similar existing issues, or "None found"]
+
+            ---
+            *This is an automated triage comment. A maintainer will review this issue and may provide further guidance.*
+            *Written by Claude Sonnet via [Claude Code](https://claude.com/claude-code)*
+
+          claude_args: |
+            --allowedTools "Read,Glob,Grep,WebSearch,WebFetch,Bash,Agent,TodoWrite,NotebookRead,LSP"
+
+      - name: Fetch Claude comment for Telegram
+        if: success()
+        id: fetch_comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number
+            });
+
+            const botComment = comments
+              .reverse()
+              .find(c => c.body && c.body.includes('Issue Triage'));
+
+            let text = botComment
+              ? botComment.body
+              : 'Claude analysis completed. See issue for details.';
+
+            text = text
+              .replace(/#{1,3} /g, '')
+              .replace(/\*\*/g, '')
+              .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+              .replace(/---/g, '');
+
+            if (text.length > 3500) {
+              text = text.substring(0, 3500) + '...';
+            }
+
+            core.exportVariable('TRIAGE_TEXT', text);
+
+      - name: Send Telegram notification
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            Claude Issue Triage
+            ${{ github.repository }} #${{ github.event.issue.number }}
+
+            ${{ env.TRIAGE_TEXT }}
+
+            ${{ github.event.issue.html_url }}

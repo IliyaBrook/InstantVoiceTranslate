@@ -1,0 +1,102 @@
+name: Telegram Notifications
+
+on:
+  issues:
+    types: [opened, labeled, closed]
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  notify-new-issue:
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: html
+          message: |
+            <b>New Issue</b> in <code>${{ github.repository }}</code>
+
+            #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+            Author: ${{ github.event.issue.user.login }}
+
+            ${{ github.event.issue.html_url }}
+
+  notify-stale-issue:
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'stale'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: html
+          message: |
+            <b>Issue Marked Stale</b> in <code>${{ github.repository }}</code>
+
+            #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+
+            This issue will be automatically closed in 7 days if no activity occurs.
+
+            ${{ github.event.issue.html_url }}
+
+  notify-closed-issue:
+    if: github.event_name == 'issues' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: html
+          message: |
+            <b>Issue Closed</b> in <code>${{ github.repository }}</code>
+
+            #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+            Closed by: ${{ github.actor }}
+
+            ${{ github.event.issue.html_url }}
+
+  notify-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: html
+          message: |
+            <b>New Pull Request</b> in <code>${{ github.repository }}</code>
+
+            #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}
+            Author: ${{ github.event.pull_request.user.login }}
+            Branch: ${{ github.event.pull_request.head.ref }} -> ${{ github.event.pull_request.base.ref }}
+
+            ${{ github.event.pull_request.html_url }}
+
+  notify-comment:
+    if: github.event_name == 'issue_comment'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: html
+          message: |
+            <b>New Comment</b> in <code>${{ github.repository }}</code>
+
+            Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+            Author: ${{ github.event.comment.user.login }}
+
+            ${{ github.event.comment.html_url }}
