@@ -1,0 +1,35 @@
+name: Telegram / Stale Issues / Claude Triage
+
+on:
+  issues:
+    types: [opened, labeled, closed]
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  telegram-notifications:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+    uses: IliyaBrook/GitHub_workflows/.github/workflows/telegram-notify.yml@master
+    secrets: inherit
+
+  stale-issues:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: IliyaBrook/GitHub_workflows/.github/workflows/stale-issues.yml@master
+    secrets: inherit
+
+  claude-issue-triage:
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    uses: IliyaBrook/GitHub_workflows/.github/workflows/claude-issue-triage.yml@master
+    secrets: inherit
