@@ -4,6 +4,7 @@
 
     <!-- Main Screen -->
     <string name="action_settings">Settings</string>
+    <string name="action_swap_languages">Swap languages</string>
     <string name="action_stop">Stop</string>
     <string name="action_start">Start</string>
     <string name="label_translation">Translation</string>

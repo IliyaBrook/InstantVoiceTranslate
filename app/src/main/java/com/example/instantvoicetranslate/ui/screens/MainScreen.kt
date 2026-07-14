@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -109,11 +110,15 @@ fun MainScreen(
                             text = LanguageUtils.displayName(settings.sourceLanguage),
                             style = MaterialTheme.typography.titleMedium
                         )
-                        Text(
-                            text = " \u2192 ",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        IconButton(
+                            onClick = { viewModel.swapLanguages() },
+                            enabled = settings.targetLanguage in LanguageUtils.sourceLanguages.map { it.first },
+                        ) {
+                            Icon(
+                                Icons.Default.SwapHoriz,
+                                contentDescription = stringResource(R.string.action_swap_languages),
+                            )
+                        }
                         Text(
                             text = LanguageUtils.displayName(settings.targetLanguage),
                             style = MaterialTheme.typography.titleMedium
