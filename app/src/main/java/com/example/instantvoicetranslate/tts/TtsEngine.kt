@@ -13,9 +13,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +50,15 @@ class TtsEngine @Inject constructor(
         private const val UTTERANCE_TIMEOUT_MS = 30_000L
 
         /**
+         * How long to keep [isSpeaking] true after an utterance finishes.
+         * Covers the acoustic tail (speaker decay/room echo) that would
+         * otherwise still be picked up by the microphone right after
+         * playback ends, causing the ASR to transcribe TTS's own trailing
+         * audio and feed it back into translation (a feedback loop).
+         */
+        private const val SPEECH_TAIL_COOLDOWN_MS = 400L
+
+        /**
          * Matches sentence-ending punctuation (.!?) followed by whitespace.
          * Uses a fixed-length lookbehind (single char) which is safe for Java regex.
          */
@@ -64,6 +75,7 @@ class TtsEngine @Inject constructor(
     private var tts: TextToSpeech? = null
     private val utteranceId = AtomicInteger(0)
     private var currentDeferred: CompletableDeferred<Unit>? = null
+    private var speakingCooldownJob: Job? = null
 
     // --- Volume & audio ducking ---
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -103,28 +115,29 @@ class TtsEngine @Inject constructor(
 
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
+                        speakingCooldownJob?.cancel()
                         _isSpeaking.value = true
                         requestAudioFocus()
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        _isSpeaking.value = false
                         releaseAudioFocus()
                         currentDeferred?.complete(Unit)
+                        scheduleSpeakingCooldown()
                     }
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
-                        _isSpeaking.value = false
                         releaseAudioFocus()
                         currentDeferred?.complete(Unit)
+                        scheduleSpeakingCooldown()
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
                         Log.e(TAG, "TTS error: $errorCode")
-                        _isSpeaking.value = false
                         releaseAudioFocus()
                         currentDeferred?.complete(Unit)
+                        scheduleSpeakingCooldown()
                     }
                 })
 
@@ -195,6 +208,7 @@ class TtsEngine @Inject constructor(
 
     fun stop() {
         tts?.stop()
+        speakingCooldownJob?.cancel()
         _isSpeaking.value = false
         releaseAudioFocus()
         currentDeferred?.complete(Unit)
@@ -246,6 +260,20 @@ class TtsEngine @Inject constructor(
             audioManager.abandonAudioFocusRequest(request)
             audioFocusRequest = null
             Log.d(TAG, "Audio focus released")
+        }
+    }
+
+    /**
+     * Keeps [isSpeaking] true for [SPEECH_TAIL_COOLDOWN_MS] after an utterance
+     * ends, so callers muting the mic during TTS also cover the acoustic tail.
+     * Cancelled by [onStart] if a new utterance begins before it fires.
+     */
+    private fun scheduleSpeakingCooldown() {
+        speakingCooldownJob?.cancel()
+        val scope = queueScope ?: return
+        speakingCooldownJob = scope.launch {
+            delay(SPEECH_TAIL_COOLDOWN_MS)
+            _isSpeaking.value = false
         }
     }
 

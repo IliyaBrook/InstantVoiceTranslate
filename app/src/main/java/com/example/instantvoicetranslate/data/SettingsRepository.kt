@@ -30,7 +30,7 @@ data class AppSettings(
     val showOriginalText: Boolean = true,
     val showPartialText: Boolean = true,
     val autoSpeak: Boolean = true,
-    val muteMicDuringTts: Boolean = false,
+    val muteMicDuringTts: Boolean = true,
     /** Request audio focus with ducking so other apps lower their volume during TTS. */
     val duckAudio: Boolean = false,
     /** Record raw audio to WAV files for debugging (off by default). */
@@ -80,7 +80,7 @@ class SettingsRepository @Inject constructor(
             showOriginalText = prefs[KEY_SHOW_ORIGINAL] ?: true,
             showPartialText = prefs[KEY_SHOW_PARTIAL] ?: true,
             autoSpeak = prefs[KEY_AUTO_SPEAK] ?: true,
-            muteMicDuringTts = prefs[KEY_MUTE_MIC_DURING_TTS] ?: false,
+            muteMicDuringTts = prefs[KEY_MUTE_MIC_DURING_TTS] ?: true,
             duckAudio = prefs[KEY_DUCK_AUDIO] ?: true,
             audioDiagnostics = prefs[KEY_AUDIO_DIAGNOSTICS] ?: false,
             diagOutputDir = prefs[KEY_DIAG_OUTPUT_DIR] ?: "",
