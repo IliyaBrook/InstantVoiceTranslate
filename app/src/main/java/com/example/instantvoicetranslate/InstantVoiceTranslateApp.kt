@@ -25,13 +25,20 @@ class InstantVoiceTranslateApp : Application() {
     }
 
     /**
-     * Under memory pressure, shrink the ASR warm-pool back to one language
-     * before the system decides to kill this whole process instead — losing
-     * one pre-warmed recognizer is far cheaper than a full restart.
+     * Under severe memory pressure, shrink the ASR warm-pool back to one
+     * language before the system decides to kill this whole process instead.
+     *
+     * Reacts only to RUNNING_CRITICAL, not the much more frequent
+     * RUNNING_LOW/MODERATE levels: on a device that's chronically close to
+     * its memory watermark (many background apps, a memory-hungry external
+     * TTS engine also competing for RAM), those fire on essentially every
+     * turn of a conversation, which was thrashing the pool -- discarding the
+     * other direction's warm recognizer right after it was loaded and
+     * forcing a reload on the very next swap.
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+        if (level >= TRIM_MEMORY_RUNNING_CRITICAL) {
             Log.w(TAG, "onTrimMemory(level=$level): trimming ASR recognizer pool")
             recognizerPool.trimToMostRecentlyUsed()
         }

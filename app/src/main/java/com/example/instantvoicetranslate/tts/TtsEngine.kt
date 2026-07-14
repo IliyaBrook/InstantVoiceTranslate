@@ -59,6 +59,16 @@ class TtsEngine @Inject constructor(
         private const val SPEECH_TAIL_COOLDOWN_MS = 400L
 
         /**
+         * Delay before retrying a locale that initially came back unsupported.
+         * Covers external TTS engine apps (e.g. a separate neural-voice app)
+         * that can themselves be killed by the system under memory pressure
+         * and take a moment to reload their voice data after an automatic
+         * restart -- during that window setLanguage() reports the voice
+         * missing even though it's actually installed.
+         */
+        private const val LOCALE_RETRY_DELAY_MS = 1_500L
+
+        /**
          * Matches sentence-ending punctuation (.!?) followed by whitespace.
          * Uses a fixed-length lookbehind (single char) which is safe for Java regex.
          */
@@ -76,6 +86,11 @@ class TtsEngine @Inject constructor(
     private val utteranceId = AtomicInteger(0)
     private var currentDeferred: CompletableDeferred<Unit>? = null
     private var speakingCooldownJob: Job? = null
+
+    // Lives for the singleton's lifetime, independent of [queueScope] (which
+    // is cancelled/replaced on every initialize() call) so a scheduled
+    // locale retry can't be cancelled out from under it by a later re-init.
+    private val engineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // --- Volume & audio ducking ---
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -163,7 +178,7 @@ class TtsEngine @Inject constructor(
      * speak translated text in the wrong language even though setLanguage()
      * looked like it succeeded.
      */
-    private fun applyLocale(locale: Locale): Boolean {
+    private fun applyLocale(locale: Locale, allowRetry: Boolean = true): Boolean {
         val engine = tts ?: return false
 
         val result = engine.setLanguage(locale)
@@ -172,7 +187,12 @@ class TtsEngine @Inject constructor(
         var effectiveLocale = locale
 
         if (!requestedLocaleSupported) {
-            Log.w(TAG, "Language $locale not supported (result=$result), falling back to English")
+            if (allowRetry) {
+                Log.w(TAG, "Language $locale not supported (result=$result) -- retrying once shortly")
+                scheduleLocaleRetry(locale)
+            } else {
+                Log.w(TAG, "Language $locale still not supported after retry (result=$result), falling back to English")
+            }
             engine.language = Locale.US
             effectiveLocale = Locale.US
             val languageName = locale.getDisplayLanguage(Locale.ENGLISH)
@@ -191,6 +211,23 @@ class TtsEngine @Inject constructor(
 
         Log.i(TAG, "TTS active voice: ${engine.voice?.name} (${engine.voice?.locale}), requested=$locale")
         return requestedLocaleSupported
+    }
+
+    /**
+     * Retries [locale] once after a short delay -- covers an external TTS
+     * engine app that was itself killed by the system under memory pressure
+     * and is still reloading its voice data right after an automatic
+     * restart. Uses [engineScope] (not [queueScope], which gets cancelled
+     * and replaced on every initialize() call) so this survives a
+     * conversation-direction swap that happens to land in the same window.
+     */
+    private fun scheduleLocaleRetry(locale: Locale) {
+        engineScope.launch {
+            delay(LOCALE_RETRY_DELAY_MS)
+            if (applyLocale(locale, allowRetry = false)) {
+                Log.i(TAG, "Language $locale became available on retry")
+            }
+        }
     }
 
     /**
