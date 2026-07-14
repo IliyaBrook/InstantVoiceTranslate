@@ -152,13 +152,19 @@ class MainViewModel @Inject constructor(
                 ttsEngine.initialize(ttsLocale)
             }
 
-            // 5. If offline mode is enabled and NLLB model is downloaded, pre-load it
-            if (currentSettings.offlineMode && nllbModelManager.isModelReady()) {
+            // 5. If offline mode is enabled, provision (bundled assets or
+            // download) and pre-load the NLLB model. No isModelReady() gate
+            // here: with bundled assets this is a fast local copy, not a
+            // multi-hundred-MB network download, so it's safe to call
+            // unconditionally whenever offline mode is on.
+            if (currentSettings.offlineMode) {
                 modelDownloader.updateStatus(ModelStatus.Initializing("Loading offline translation model..."))
                 try {
-                    if (!nllbTranslator.isInitialized) {
-                        nllbTranslator.initialize()
-                    }
+                    nllbModelManager.ensureModelAvailable(warmup = {
+                        if (!nllbTranslator.isInitialized) {
+                            nllbTranslator.initialize()
+                        }
+                    })
                     Log.i(TAG, "NLLB translator pre-loaded for offline mode")
                 } catch (e: Throwable) {
                     // Catch Throwable (not just Exception) because UnsatisfiedLinkError

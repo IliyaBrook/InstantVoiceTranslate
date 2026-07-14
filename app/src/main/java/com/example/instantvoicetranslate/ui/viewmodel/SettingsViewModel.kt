@@ -42,27 +42,15 @@ class SettingsViewModel @Inject constructor(
 
     fun downloadNllbModel() {
         viewModelScope.launch {
-            nllbModelManager.ensureModelAvailable()
-
-            // Warmup: initialize NLLB translator to force DJL native lib
-            // extraction/caching while we still have internet (if needed).
-            // This ensures offline mode works later without any network calls.
-            if (nllbModelManager.isModelReady()) {
-                nllbModelManager.updateStatus(
-                    ModelStatus.Initializing("Warming up offline translation...")
-                )
-                try {
-                    nllbTranslator.initialize()
-                    Log.i(TAG, "NLLB warmup completed, releasing to free RAM")
-                    nllbTranslator.release()
-                    nllbModelManager.updateStatus(ModelStatus.Ready)
-                } catch (e: Throwable) {
-                    Log.e(TAG, "NLLB warmup failed", e)
-                    nllbModelManager.updateStatus(
-                        ModelStatus.Error("Warmup failed: ${e.message}")
-                    )
-                }
-            }
+            // Warmup: initialize NLLB translator to force native lib
+            // extraction/caching while we still have internet (if needed),
+            // then release immediately to free RAM since this is just a
+            // manual "predownload" button, not an active translation session.
+            nllbModelManager.ensureModelAvailable(warmup = {
+                nllbTranslator.initialize()
+                Log.i(TAG, "NLLB warmup completed, releasing to free RAM")
+                nllbTranslator.release()
+            })
         }
     }
 
