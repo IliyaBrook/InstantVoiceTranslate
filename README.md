@@ -62,6 +62,20 @@ or **offline** (NLLB-200-distilled-600M via ONNX Runtime, no internet needed aft
 - **Android SDK 36** (compileSdk)
 - **Device or emulator** with API 29+ (Android 10 required for AudioPlaybackCapture)
 
+### Device RAM
+
+- **Online mode** (Yandex API translation): a single ~26--190 MB ASR model resident -- fine on any modern device.
+- **Offline mode** (NLLB-200 translation): NLLB itself uses **~900 MB--1 GB RAM** once loaded, on top of the active
+  ASR model(s). **At least 6--8 GB of total device RAM is recommended** for offline mode to run reliably alongside
+  normal background app usage.
+- Switching translation direction keeps up to two ASR models warm at once (source + target language) for fast
+  swaps, adding up to ~350 MB more in the worst case (e.g. English + Spanish).
+- On memory-constrained devices, or devices with many background apps, the Android low-memory killer can terminate
+  the app (offline mode + a memory-hungry third-party neural TTS engine were observed being killed under pressure
+  on an 8 GB Pixel 7a with many other apps installed). The app defends against this by shrinking its own ASR cache
+  under memory pressure (`ComponentCallbacks2.onTrimMemory`), but a chronically RAM-starved device may still see
+  occasional TTS voice hiccups or ASR reloads.
+
 ## Build & Run
 
 ```bash
