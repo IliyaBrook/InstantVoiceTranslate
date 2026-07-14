@@ -82,6 +82,16 @@ android {
         }
     }
 
+    androidResources {
+        // Bundled ASR/NLLB model files (app/src/main/assets/models/) are large,
+        // already-dense binaries (quantized ONNX weights) or small text/config
+        // files read via AssetManager.openFd() for first-launch-extraction
+        // progress sizing (openFd requires STORED, i.e. uncompressed, zip
+        // entries). No other .onnx/.txt/.model/.vocab/.json assets exist in
+        // this project.
+        noCompress += listOf("onnx", "txt", "model", "vocab", "json")
+    }
+
     lint {
         // onnxruntime-android:1.17.1 native lib is not 16KB-aligned, but the APK
         // uses libonnxruntime.so from sherpa-onnx.aar (via pickFirsts), not Maven.

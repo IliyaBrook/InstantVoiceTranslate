@@ -15,6 +15,9 @@ keystore.properties
 *.apk
 *.aab
 
+# Bundled model assets (fetched locally, not committed — multi-GB binaries)
+app/src/main/assets/models/
+
 # Android Studio
 captures/
 .externalNativeBuild/
