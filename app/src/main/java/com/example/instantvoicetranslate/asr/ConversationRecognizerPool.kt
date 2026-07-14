@@ -50,6 +50,23 @@ class ConversationRecognizerPool @javax.inject.Inject constructor() {
 
     fun isWarm(language: String): Boolean = pool[language]?.isReady?.value == true
 
+    /**
+     * Releases every warm recognizer except the most-recently-used one, in
+     * response to a system memory-pressure signal (see
+     * [InstantVoiceTranslateApp.onTrimMemory]). Keeping two ~30-190MB ASR
+     * models plus NLLB (~1GB) resident can otherwise push a loaded device
+     * over its memory watermark and get the whole process killed by the
+     * Android low-memory killer instead of just this pool shrinking back to
+     * one warm language.
+     */
+    fun trimToMostRecentlyUsed() {
+        while (pool.size > 1) {
+            val lruLanguage = pool.keys.first()
+            pool.remove(lruLanguage)?.release()
+            Log.i(TAG, "Trimmed warm recognizer for '$lruLanguage' due to memory pressure")
+        }
+    }
+
     fun releaseAll() {
         pool.values.forEach { it.release() }
         pool.clear()

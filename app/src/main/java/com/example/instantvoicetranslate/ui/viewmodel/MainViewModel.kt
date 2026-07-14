@@ -139,21 +139,15 @@ class MainViewModel @Inject constructor(
                 }
             }
 
-            // 3b. Also pre-warm the target language's ASR model (if it's one of
-            // the ASR-capable languages) so a conversation-direction swap has
-            // both sides already loaded and doesn't pay a reload delay.
-            val tgtLang = currentSettings.targetLanguage
-            if (tgtLang != srcLang && LanguageUtils.sourceLanguages.any { it.first == tgtLang }) {
-                try {
-                    modelDownloader.ensureModelAvailable(tgtLang)
-                    if (modelDownloader.isModelReady(tgtLang)) {
-                        recognizerPool.acquire(tgtLang, modelDownloader.getModelDir(tgtLang).absolutePath)
-                        Log.i(TAG, "ASR model for target language '$tgtLang' pre-warmed for fast swap")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to pre-warm target language ASR model '$tgtLang'", e)
-                }
-            }
+            // Note: the target language's ASR model is intentionally NOT
+            // pre-warmed here. Keeping two ASR models resident for the
+            // entire app lifetime (on top of NLLB's ~1GB in offline mode)
+            // pushed a loaded device over its memory watermark and got the
+            // whole process killed by the Android low-memory killer. Instead
+            // the pool builds up lazily: the first swapLanguages() call pays
+            // a normal cold-load for the new direction, and only
+            // conversations that actually swap back and forth keep both
+            // directions warm (see ConversationRecognizerPool).
 
             // 4. Pre-initialize TTS engine
             modelDownloader.updateStatus(ModelStatus.Initializing("Starting TTS engine..."))
