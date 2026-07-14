@@ -100,6 +100,16 @@ class SettingsRepository @Inject constructor(
         context.dataStore.edit { it[KEY_TARGET_LANG] = lang }
     }
 
+    /** Atomically swaps source and target language (conversation-direction flip). */
+    suspend fun swapLanguages() {
+        context.dataStore.edit { prefs ->
+            val src = prefs[KEY_SOURCE_LANG] ?: "en"
+            val tgt = prefs[KEY_TARGET_LANG] ?: "ru"
+            prefs[KEY_SOURCE_LANG] = tgt
+            prefs[KEY_TARGET_LANG] = src
+        }
+    }
+
     suspend fun updateTtsSpeed(speed: Float) {
         context.dataStore.edit { it[KEY_TTS_SPEED] = speed }
     }
