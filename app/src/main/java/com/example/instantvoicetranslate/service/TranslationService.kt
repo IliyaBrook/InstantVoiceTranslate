@@ -220,16 +220,18 @@ class TranslationService : Service() {
                     translator
                 }
 
-                // Initialize TTS
+                uiState.setRunning(true)
+                uiState.setError(null)
+
+                // Initialize TTS (after the error reset above, so a locale-
+                // fallback warning set inside applyLocale() isn't immediately
+                // cleared again).
                 val ttsLocale = Locale.forLanguageTag(settings.targetLanguage)
                 ttsEngine.initialize(ttsLocale)
                 ttsEngine.setSpeechRate(settings.ttsSpeed)
                 ttsEngine.setPitch(settings.ttsPitch)
                 ttsEngine.setVolume(settings.ttsVolume)
                 ttsEngine.setDuckingEnabled(settings.duckAudio)
-
-                uiState.setRunning(true)
-                uiState.setError(null)
 
                 // Start audio capture using the source passed via intent
                 val rawAudioFlow = audioCaptureManager.startCapture(currentAudioSource)

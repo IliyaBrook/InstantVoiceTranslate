@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.example.instantvoicetranslate.data.TranslationUiState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -39,7 +40,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class TtsEngine @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val uiState: TranslationUiState
 ) {
     companion object {
         private const val TAG = "TtsEngine"
@@ -79,20 +81,14 @@ class TtsEngine @Inject constructor(
     fun initialize(locale: Locale = Locale.forLanguageTag("ru"), onReady: (() -> Unit)? = null) {
         // If already initialized with a working engine, just update locale
         if (_isInitialized.value && tts != null) {
-            tts?.language = locale
+            applyLocale(locale)
             onReady?.invoke()
             return
         }
 
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val result = tts?.setLanguage(locale)
-                if (result == TextToSpeech.LANG_MISSING_DATA ||
-                    result == TextToSpeech.LANG_NOT_SUPPORTED
-                ) {
-                    Log.w(TAG, "Language $locale not supported, trying English")
-                    tts?.language = Locale.US
-                }
+                applyLocale(locale)
 
                 // Use USAGE_ASSISTANT so that TTS audio is NOT captured by
                 // MediaProjection (AudioPlaybackCapture). Android automatically
@@ -140,6 +136,48 @@ class TtsEngine @Inject constructor(
                 Log.e(TAG, "TTS initialization failed with status: $status")
             }
         }
+    }
+
+    /**
+     * Applies [locale] to the active TTS engine and returns whether it was
+     * actually applied (false if the engine fell back to English).
+     *
+     * Sets both the legacy [TextToSpeech.setLanguage] locale AND an explicit
+     * [android.speech.tts.Voice] match. Some TTS engines (e.g. custom
+     * offline engines) only fully honor the modern Voice API — their
+     * setLanguage() compatibility shim can report success without actually
+     * switching the active synthesis voice, which is what caused this app to
+     * speak translated text in the wrong language even though setLanguage()
+     * looked like it succeeded.
+     */
+    private fun applyLocale(locale: Locale): Boolean {
+        val engine = tts ?: return false
+
+        val result = engine.setLanguage(locale)
+        val requestedLocaleSupported = result != TextToSpeech.LANG_MISSING_DATA &&
+                result != TextToSpeech.LANG_NOT_SUPPORTED
+        var effectiveLocale = locale
+
+        if (!requestedLocaleSupported) {
+            Log.w(TAG, "Language $locale not supported (result=$result), falling back to English")
+            engine.language = Locale.US
+            effectiveLocale = Locale.US
+            val languageName = locale.getDisplayLanguage(Locale.ENGLISH)
+            uiState.setError("TTS voice for $languageName not available, using English instead")
+        }
+
+        val matchedVoice = runCatching { engine.voices }.getOrNull()
+            ?.filter { !it.isNetworkConnectionRequired && it.locale.language == effectiveLocale.language }
+            ?.let { candidates ->
+                candidates.firstOrNull { it.locale.country == effectiveLocale.country }
+                    ?: candidates.firstOrNull()
+            }
+        if (matchedVoice != null) {
+            engine.voice = matchedVoice
+        }
+
+        Log.i(TAG, "TTS active voice: ${engine.voice?.name} (${engine.voice?.locale}), requested=$locale")
+        return requestedLocaleSupported
     }
 
     /**
