@@ -37,7 +37,7 @@ data class AppSettings(
     val audioDiagnostics: Boolean = false,
     /** Custom output directory for diagnostic WAV files (empty = default). */
     val diagOutputDir: String = "",
-    val offlineMode: Boolean = false,
+    val offlineMode: Boolean = true,
 )
 
 @Singleton
@@ -84,7 +84,7 @@ class SettingsRepository @Inject constructor(
             duckAudio = prefs[KEY_DUCK_AUDIO] ?: true,
             audioDiagnostics = prefs[KEY_AUDIO_DIAGNOSTICS] ?: false,
             diagOutputDir = prefs[KEY_DIAG_OUTPUT_DIR] ?: "",
-            offlineMode = prefs[KEY_OFFLINE_MODE] ?: false,
+            offlineMode = prefs[KEY_OFFLINE_MODE] ?: true,
         )
     }
 
