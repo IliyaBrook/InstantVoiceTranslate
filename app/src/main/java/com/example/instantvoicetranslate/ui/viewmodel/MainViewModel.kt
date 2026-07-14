@@ -5,7 +5,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.instantvoicetranslate.asr.SpeechRecognizer
+import com.example.instantvoicetranslate.asr.ConversationRecognizerPool
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
 import com.example.instantvoicetranslate.data.AppSettings
 import com.example.instantvoicetranslate.data.ModelDownloader
@@ -16,6 +16,7 @@ import com.example.instantvoicetranslate.service.TranslationService
 import com.example.instantvoicetranslate.translation.NllbModelManager
 import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.tts.TtsEngine
+import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import javax.inject.Inject
 
@@ -38,7 +40,7 @@ class MainViewModel @Inject constructor(
     private val translationUiState: TranslationUiState,
     private val settingsRepository: SettingsRepository,
     private val modelDownloader: ModelDownloader,
-    private val speechRecognizer: SpeechRecognizer,
+    private val recognizerPool: ConversationRecognizerPool,
     private val ttsEngine: TtsEngine,
     private val nllbModelManager: NllbModelManager,
     private val nllbTranslator: NllbTranslator,
@@ -109,23 +111,16 @@ class MainViewModel @Inject constructor(
             // 2. Pre-initialize ASR recognizer (loads ONNX model into memory)
             modelDownloader.updateStatus(ModelStatus.Initializing("Loading speech model..."))
 
-            if (!speechRecognizer.isReady.value || speechRecognizer.currentLanguage.value != srcLang) {
-                try {
-                    if (speechRecognizer.isReady.value) {
-                        speechRecognizer.release()
-                    }
-                    Log.i(TAG, "Pre-loading ASR model for '$srcLang'...")
-                    speechRecognizer.initialize(
-                        modelDownloader.getModelDir(srcLang).absolutePath,
-                        srcLang
-                    )
-                    Log.i(TAG, "ASR model pre-loaded successfully")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to pre-load ASR model", e)
-                    modelDownloader.updateStatus(ModelStatus.Error("ASR init failed: ${e.message}"))
-                    punctJob?.cancel()
-                    return@launch
-                }
+            val recognizer = try {
+                Log.i(TAG, "Pre-loading ASR model for '$srcLang'...")
+                val r = recognizerPool.acquire(srcLang, modelDownloader.getModelDir(srcLang).absolutePath)
+                Log.i(TAG, "ASR model pre-loaded successfully")
+                r
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to pre-load ASR model", e)
+                modelDownloader.updateStatus(ModelStatus.Error("ASR init failed: ${e.message}"))
+                punctJob?.cancel()
+                return@launch
             }
 
             // 3. Wait for punctuation download (started in parallel) and initialize
@@ -134,13 +129,29 @@ class MainViewModel @Inject constructor(
                 try {
                     punctJob?.await()
                     if (modelDownloader.isPunctModelReady()) {
-                        speechRecognizer.initializePunctuation(
+                        recognizer.initializePunctuation(
                             modelDownloader.getPunctModelDir().absolutePath
                         )
                         Log.i(TAG, "Punctuation model pre-loaded")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Punctuation model not available, continuing without it", e)
+                }
+            }
+
+            // 3b. Also pre-warm the target language's ASR model (if it's one of
+            // the ASR-capable languages) so a conversation-direction swap has
+            // both sides already loaded and doesn't pay a reload delay.
+            val tgtLang = currentSettings.targetLanguage
+            if (tgtLang != srcLang && LanguageUtils.sourceLanguages.any { it.first == tgtLang }) {
+                try {
+                    modelDownloader.ensureModelAvailable(tgtLang)
+                    if (modelDownloader.isModelReady(tgtLang)) {
+                        recognizerPool.acquire(tgtLang, modelDownloader.getModelDir(tgtLang).absolutePath)
+                        Log.i(TAG, "ASR model for target language '$tgtLang' pre-warmed for fast swap")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to pre-warm target language ASR model '$tgtLang'", e)
                 }
             }
 
@@ -184,6 +195,61 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             val lang = settings.value.sourceLanguage
             modelDownloader.ensureModelAvailable(lang)
+        }
+    }
+
+    /**
+     * Flips source <-> target language for a conversation-direction swap.
+     * Only enabled when the current target is itself ASR-capable (otherwise
+     * there'd be no recognizer model to hear the reply) -- callers should
+     * gate the UI control on that same condition.
+     *
+     * If a translation session is running on the microphone source, restarts
+     * it so the new pairing takes effect immediately; the restart is fast
+     * because the target language's ASR model was already pre-warmed by
+     * [preloadPipelineComponents]. System-audio sessions are left running
+     * with the old pairing (restarting would require re-requesting
+     * MediaProjection consent via an Activity), taking effect on the next
+     * manual start.
+     */
+    fun swapLanguages() {
+        val current = settings.value
+        if (current.targetLanguage !in LanguageUtils.sourceLanguages.map { it.first }) {
+            Log.w(TAG, "Swap ignored: target '${current.targetLanguage}' has no ASR model")
+            return
+        }
+
+        val wasRunning = isRunning.value
+        val canAutoRestart = wasRunning && current.audioSource == AudioCaptureManager.Source.MICROPHONE
+        if (wasRunning && !canAutoRestart) {
+            Log.i(TAG, "Swap applied to settings; system-audio session keeps running with the old pairing")
+        }
+
+        viewModelScope.launch {
+            if (canAutoRestart) {
+                stopTranslation()
+                // stopTranslation()/startTranslation() just fire Android
+                // Intents at the service (fire-and-forget) -- wait for the
+                // stop to actually land so the START intent below can't race
+                // a still-in-flight stopSelf() from the previous session.
+                withTimeoutOrNull(2_000) { isRunning.first { !it } }
+            }
+
+            settingsRepository.swapLanguages()
+
+            // Pre-warm the new source (almost always already warm as the
+            // previous target) so a subsequent start is instant either way.
+            val newSrcLang = current.targetLanguage
+            try {
+                modelDownloader.ensureModelAvailable(newSrcLang)
+                if (modelDownloader.isModelReady(newSrcLang)) {
+                    recognizerPool.acquire(newSrcLang, modelDownloader.getModelDir(newSrcLang).absolutePath)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to pre-warm swapped source language '$newSrcLang'", e)
+            }
+
+            if (canAutoRestart) startTranslation()
         }
     }
 

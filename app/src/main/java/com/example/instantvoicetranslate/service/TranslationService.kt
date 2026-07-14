@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import com.example.instantvoicetranslate.MainActivity
 import com.example.instantvoicetranslate.R
 import com.example.instantvoicetranslate.InstantVoiceTranslateApp
+import com.example.instantvoicetranslate.asr.ConversationRecognizerPool
 import com.example.instantvoicetranslate.asr.SpeechRecognizer
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
 import com.example.instantvoicetranslate.audio.AudioDiagnostics
@@ -55,7 +56,7 @@ class TranslationService : Service() {
     }
 
     @Inject lateinit var audioCaptureManager: AudioCaptureManager
-    @Inject lateinit var speechRecognizer: SpeechRecognizer
+    @Inject lateinit var recognizerPool: ConversationRecognizerPool
     @Inject lateinit var translator: TextTranslator
     @Inject lateinit var nllbTranslator: NllbTranslator
     @Inject lateinit var ttsEngine: TtsEngine
@@ -65,6 +66,7 @@ class TranslationService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var pipelineJob: Job? = null
+    private var activeRecognizer: SpeechRecognizer? = null
     private var isPaused = false
     private var currentAudioSource = AudioCaptureManager.Source.MICROPHONE
 
@@ -180,23 +182,17 @@ class TranslationService : Service() {
                     }
                 }
 
-                // Initialize recognizer if needed, or reinitialize if language changed
-                val needsInit = !speechRecognizer.isReady.value ||
-                        speechRecognizer.currentLanguage.value != srcLang
-                if (needsInit) {
-                    if (speechRecognizer.isReady.value) {
-                        speechRecognizer.release()
-                    }
-                    speechRecognizer.initialize(
-                        modelDownloader.getModelDir(srcLang).absolutePath,
-                        srcLang
-                    )
-                    // Initialize punctuation model if available
-                    if (srcLang == "en" && modelDownloader.isPunctModelReady()) {
-                        speechRecognizer.initializePunctuation(
-                            modelDownloader.getPunctModelDir().absolutePath
-                        )
-                    }
+                // Acquire a warm recognizer for the source language from the
+                // pool — instant if already warm (pre-warmed at launch or
+                // kept warm from a prior conversation-direction swap),
+                // avoiding a multi-second release+reinit on every switch.
+                val recognizer = recognizerPool.acquire(
+                    srcLang,
+                    modelDownloader.getModelDir(srcLang).absolutePath
+                )
+                activeRecognizer = recognizer
+                if (srcLang == "en" && modelDownloader.isPunctModelReady()) {
+                    recognizer.initializePunctuation(modelDownloader.getPunctModelDir().absolutePath)
                 }
 
                 // Select translator based on offline mode
@@ -252,11 +248,11 @@ class TranslationService : Service() {
                 }
 
                 // Start recognition (energy-based silence detection inside recognizer)
-                speechRecognizer.startRecognition(audioFlow)
+                recognizer.startRecognition(audioFlow)
 
                 // Collect partial results -> UI
                 launch {
-                    speechRecognizer.partialText.collect { text ->
+                    recognizer.partialText.collect { text ->
                         uiState.updatePartial(text)
                     }
                 }
@@ -268,7 +264,7 @@ class TranslationService : Service() {
                     // Limit concurrent HTTP translation requests
                     val translationSemaphore = Semaphore(MAX_CONCURRENT_TRANSLATIONS)
 
-                    speechRecognizer.recognizedSegments.collect { segment ->
+                    recognizer.recognizedSegments.collect { segment ->
                         if (isPaused) return@collect
 
                         // Assign a monotonic sequence number to preserve ordering
@@ -339,7 +335,7 @@ class TranslationService : Service() {
     private fun stopPipeline() {
         pipelineJob?.cancel()
         pipelineJob = null
-        speechRecognizer.stopRecognition()
+        activeRecognizer?.stopRecognition()
         audioCaptureManager.stopCapture()
         audioCaptureManager.releaseMediaProjection()
         audioCaptureManager.diagnostics = null

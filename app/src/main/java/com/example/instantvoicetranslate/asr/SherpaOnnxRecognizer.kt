@@ -26,11 +26,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class SherpaOnnxRecognizer @Inject constructor() : SpeechRecognizer {
+/**
+ * Not Hilt-managed: instances are created directly (plain constructor) by
+ * [ConversationRecognizerPool], which can hold more than one warm instance
+ * at a time (one per conversation direction) — incompatible with a
+ * `@Singleton` binding.
+ */
+class SherpaOnnxRecognizer : SpeechRecognizer {
 
     companion object {
         private const val TAG = "SherpaOnnxRecognizer"
