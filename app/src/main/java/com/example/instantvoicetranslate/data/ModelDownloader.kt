@@ -39,7 +39,8 @@ data class LanguageModelConfig(
 
 @Singleton
 class ModelDownloader @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val assetModelProvisioner: AssetModelProvisioner
 ) {
     companion object {
         private const val TAG = "ModelDownloader"
@@ -193,6 +194,22 @@ class ModelDownloader @Inject constructor(
             _status.value = ModelStatus.Ready
             return
         }
+
+        val config = LANGUAGE_MODELS[language]
+        if (config != null) {
+            val installed = assetModelProvisioner.installFromAssets(
+                assetSubdir = "models/asr/${config.dirName}",
+                targetDir = File(context.filesDir, config.dirName),
+                expectedFiles = config.files.map { it.name },
+                onProgress = { _status.value = it },
+            )
+            if (installed) {
+                _status.value = ModelStatus.Ready
+                Log.i(TAG, "ASR model for '$language' provisioned from bundled assets")
+                return
+            }
+        }
+
         downloadModel(language)
     }
 

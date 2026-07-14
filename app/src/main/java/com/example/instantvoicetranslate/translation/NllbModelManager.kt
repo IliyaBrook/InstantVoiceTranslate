@@ -2,6 +2,7 @@ package com.example.instantvoicetranslate.translation
 
 import android.content.Context
 import android.util.Log
+import com.example.instantvoicetranslate.data.AssetModelProvisioner
 import com.example.instantvoicetranslate.data.ModelStatus
 import com.example.instantvoicetranslate.data.downloadToFile
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -22,7 +23,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class NllbModelManager @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val assetModelProvisioner: AssetModelProvisioner
 ) {
     companion object {
         private const val TAG = "NllbModelManager"
@@ -79,15 +81,38 @@ class NllbModelManager @Inject constructor(
     }
 
     /**
-     * Downloads the NLLB model if not already present.
-     * Updates [status] with download progress.
+     * Provisions the NLLB model if not already present — tries bundled APK
+     * assets first (fast local copy), falling back to a network download.
+     * Updates [status] with progress. If [warmup] is given, it runs after
+     * the model is ready with status transitions around it (e.g. to
+     * initialize-then-release an [NllbTranslator] instance).
      */
-    suspend fun ensureModelAvailable() {
-        if (isModelReady()) {
-            _status.value = ModelStatus.Ready
-            return
+    suspend fun ensureModelAvailable(warmup: (suspend () -> Unit)? = null) {
+        if (!isModelReady()) {
+            val installed = assetModelProvisioner.installFromAssets(
+                assetSubdir = "models/nllb",
+                targetDir = getModelDir(),
+                expectedFiles = ALL_FILES.map { it.name },
+                onProgress = { _status.value = it },
+            )
+            if (!installed) {
+                downloadModel()
+            }
         }
-        downloadModel()
+
+        if (!isModelReady()) return
+        _status.value = ModelStatus.Ready
+
+        if (warmup != null) {
+            _status.value = ModelStatus.Initializing("Warming up offline translation...")
+            try {
+                warmup()
+                _status.value = ModelStatus.Ready
+            } catch (e: Throwable) {
+                Log.e(TAG, "NLLB warmup failed", e)
+                _status.value = ModelStatus.Error("Warmup failed: ${e.message}")
+            }
+        }
     }
 
     /**
