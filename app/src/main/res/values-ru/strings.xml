@@ -4,14 +4,16 @@
 
     <!-- Main Screen -->
     <string name="action_settings">Настройки</string>
-    <string name="action_stop">Стоп</string>
     <string name="action_start">Старт</string>
+    <string name="action_pause">Пауза</string>
+    <string name="action_resume">Продолжить</string>
     <string name="label_translation">Перевод</string>
     <string name="placeholder_translation">Нажмите кнопку микрофона для начала перевода</string>
     <string name="label_original">Оригинал</string>
     <string name="label_partial_asr">Частичное распознавание</string>
     <string name="placeholder_ellipsis">…</string>
     <string name="status_listening">Слушаю…</string>
+    <string name="status_paused">Пауза</string>
     <string name="audio_source_microphone">Микрофон</string>
     <string name="audio_source_system_audio">Системный звук</string>
 

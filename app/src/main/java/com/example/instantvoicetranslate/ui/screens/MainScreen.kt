@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,16 +24,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +46,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -73,6 +76,7 @@ fun MainScreen(
 ) {
     val isStarting by viewModel.isStarting.collectAsStateWithLifecycle()
     val isRunning by viewModel.isRunning.collectAsStateWithLifecycle()
+    val isPaused by viewModel.isPaused.collectAsStateWithLifecycle()
     val partialText by viewModel.partialText.collectAsStateWithLifecycle()
     val originalText by viewModel.originalText.collectAsStateWithLifecycle()
     val translatedText by viewModel.translatedText.collectAsStateWithLifecycle()
@@ -92,6 +96,31 @@ fun MainScreen(
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             viewModel.startTranslationWithProjection(result.resultCode, result.data!!)
         }
+    }
+
+    fun startTranslationFlow() {
+        if (settings.audioSource == AudioCaptureManager.Source.SYSTEM_AUDIO) {
+            val projectionManager = context.getSystemService(
+                Context.MEDIA_PROJECTION_SERVICE
+            ) as MediaProjectionManager
+            mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+        } else {
+            viewModel.startTranslation()
+        }
+    }
+
+    // Always release whatever's currently warm before loading the next
+    // language, rather than keeping the previous direction resident too (the
+    // pool's normal "keep both swap directions warm" behavior). Loading a
+    // new ASR model on top of an already-warm one was observed reliably
+    // tipping memory-constrained devices into a full system-wide OOM
+    // cascade; paying a full reload every swap (a few seconds) instead of an
+    // instant one is a trade Michael confirmed is worth making by default.
+    // (swapLanguages() does its own release internally, at the point where
+    // it's guaranteed safe -- after stopping any running session -- rather
+    // than upfront here.)
+    fun requestStartTranslation() {
+        viewModel.releaseWarmRecognizersThen(::startTranslationFlow)
     }
 
     LaunchedEffect(error) {
@@ -135,43 +164,67 @@ fun MainScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             if (modelStatus is ModelStatus.Ready) {
-                FloatingActionButton(
-                    onClick = {
-                        if (isRunning) {
-                            viewModel.stopTranslation()
-                        } else if (!isStarting) {
-                            if (settings.audioSource == AudioCaptureManager.Source.SYSTEM_AUDIO) {
-                                val projectionManager = context.getSystemService(
-                                    Context.MEDIA_PROJECTION_SERVICE
-                                ) as MediaProjectionManager
-                                mediaProjectionLauncher.launch(
-                                    projectionManager.createScreenCaptureIntent()
-                                )
-                            } else {
-                                viewModel.startTranslation()
-                            }
-                        }
-                    },
-                    containerColor = when {
-                        isRunning -> MaterialTheme.colorScheme.error
-                        isStarting -> MaterialTheme.colorScheme.surfaceVariant
-                        else -> MaterialTheme.colorScheme.primary
-                    }
+                // Tap: pause/resume without ending the session (or start, when
+                // idle). Long-press: fully stop -- ends the foreground session,
+                // releases audio capture. Ending the session is otherwise only
+                // triggered by a language swap, which needs a real restart.
+                //
+                // Built from Surface rather than FloatingActionButton: layering
+                // Modifier.combinedClickable on top of a FloatingActionButton's
+                // own (no-op) onClick created two competing gesture detectors --
+                // the FAB's internal one silently won, so taps never reached our
+                // handler at all. A single combinedClickable on a plain Surface
+                // has only one gesture detector, so this is unambiguous.
+                val fabContainerColor = when {
+                    isRunning && isPaused -> MaterialTheme.colorScheme.tertiary
+                    isRunning -> MaterialTheme.colorScheme.error
+                    isStarting -> MaterialTheme.colorScheme.surfaceVariant
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                Surface(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .combinedClickable(
+                            onClick = {
+                                when {
+                                    isRunning && isPaused -> viewModel.resumeTranslation()
+                                    isRunning -> viewModel.pauseTranslation()
+                                    !isStarting -> requestStartTranslation()
+                                }
+                            },
+                            onLongClick = {
+                                if (isRunning) viewModel.stopTranslation()
+                            },
+                        ),
+                    shape = FloatingActionButtonDefaults.shape,
+                    color = fabContainerColor,
+                    contentColor = MaterialTheme.colorScheme.contentColorFor(fabContainerColor),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 6.dp,
                 ) {
-                    when {
-                        isStarting -> CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.5.dp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        isRunning -> Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = stringResource(R.string.action_stop),
-                        )
-                        else -> Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = stringResource(R.string.action_start),
-                        )
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        when {
+                            isStarting -> CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // Icon reflects the CURRENT state, not the next
+                            // action: Mic while actively recording, Pause
+                            // once actually paused.
+                            isRunning && isPaused -> Icon(
+                                imageVector = Icons.Default.Pause,
+                                contentDescription = stringResource(R.string.action_resume),
+                            )
+                            isRunning -> Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = stringResource(R.string.action_pause),
+                            )
+                            else -> Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = stringResource(R.string.action_start),
+                            )
+                        }
                     }
                 }
             }
@@ -352,16 +405,31 @@ fun MainScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        stringResource(R.string.status_listening),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    if (isPaused) {
+                        Icon(
+                            imageVector = Icons.Default.Pause,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.tertiary,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.status_paused),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.status_listening),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
 
