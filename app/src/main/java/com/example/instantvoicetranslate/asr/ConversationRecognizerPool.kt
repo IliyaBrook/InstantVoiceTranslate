@@ -1,6 +1,8 @@
 package com.example.instantvoicetranslate.asr
 
 import android.util.Log
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Singleton
 
 /**
@@ -25,13 +27,23 @@ class ConversationRecognizerPool @javax.inject.Inject constructor() {
     // the end, so the front entry is always the least-recently-used one.
     private val pool = LinkedHashMap<String, SherpaOnnxRecognizer>()
 
-    suspend fun acquire(language: String, modelDir: String): SpeechRecognizer {
+    // Guards `pool` against concurrent acquire()/reconcile() calls. Without
+    // this, a swap (which pre-warms the new source directly from
+    // MainViewModel while the pipeline restart's own acquire() call races it
+    // from TranslationService) could both see the language missing and each
+    // build+initialize their own SherpaOnnxRecognizer, with the second
+    // write silently orphaning the first -- observed as a crashed pipeline
+    // (JobCancellationException + a subsequent AudioRecord IllegalStateException
+    // from the colliding native lifecycles).
+    private val mutex = Mutex()
+
+    suspend fun acquire(language: String, modelDir: String): SpeechRecognizer = mutex.withLock {
         pool[language]?.let { existing ->
             if (existing.isReady.value) {
                 // Move to most-recently-used position.
                 pool.remove(language)
                 pool[language] = existing
-                return existing
+                return@withLock existing
             }
             pool.remove(language)
         }
@@ -45,10 +57,31 @@ class ConversationRecognizerPool @javax.inject.Inject constructor() {
         val recognizer = SherpaOnnxRecognizer()
         recognizer.initialize(modelDir, language)
         pool[language] = recognizer
-        return recognizer
+        recognizer
     }
 
     fun isWarm(language: String): Boolean = pool[language]?.isReady?.value == true
+
+    /**
+     * Releases any warm recognizer whose language is not in [desiredLanguages].
+     *
+     * Settings can change the active source/target language (via the
+     * Settings screen or the swap button) without ever releasing whatever
+     * was warmed under the old settings, since neither of those call sites
+     * knows what's still relevant. Left unchecked, a stale recognizer from
+     * before the change stays resident indefinitely alongside the new one --
+     * on top of NLLB (~1GB in offline mode) this was observed pushing a
+     * loaded device over its memory watermark and getting the whole process
+     * killed. Call this right before a translation session actually starts,
+     * when the true set of languages worth keeping warm is known.
+     */
+    suspend fun reconcile(desiredLanguages: Set<String>) = mutex.withLock {
+        val stale = pool.keys.filterNot { it in desiredLanguages }
+        stale.forEach { language ->
+            pool.remove(language)?.release()
+            Log.i(TAG, "Released stale warm recognizer for '$language', no longer relevant to current settings")
+        }
+    }
 
     /**
      * Releases every warm recognizer except the most-recently-used one, in
