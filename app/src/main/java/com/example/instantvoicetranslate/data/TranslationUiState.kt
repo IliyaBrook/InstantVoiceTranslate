@@ -26,6 +26,9 @@ class TranslationUiState @Inject constructor() {
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
+    private val _isPaused = MutableStateFlow(false)
+    val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
+
     private val _partialText = MutableStateFlow("")
     val partialText: StateFlow<String> = _partialText.asStateFlow()
 
@@ -85,7 +88,12 @@ class TranslationUiState @Inject constructor() {
         }
         if (!running) {
             _partialText.value = ""
+            _isPaused.value = false
         }
+    }
+
+    fun setPaused(paused: Boolean) {
+        _isPaused.value = paused
     }
 
     fun clearTexts() {
