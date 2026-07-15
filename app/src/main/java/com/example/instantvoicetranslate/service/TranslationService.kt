@@ -17,12 +17,14 @@ import com.example.instantvoicetranslate.asr.ConversationRecognizerPool
 import com.example.instantvoicetranslate.asr.SpeechRecognizer
 import com.example.instantvoicetranslate.audio.AudioCaptureManager
 import com.example.instantvoicetranslate.audio.AudioDiagnostics
+import com.example.instantvoicetranslate.data.AppSettings
 import com.example.instantvoicetranslate.data.ModelDownloader
 import com.example.instantvoicetranslate.data.SettingsRepository
 import com.example.instantvoicetranslate.data.TranslationUiState
 import com.example.instantvoicetranslate.translation.NllbTranslator
 import com.example.instantvoicetranslate.translation.TextTranslator
 import com.example.instantvoicetranslate.tts.TtsEngine
+import com.example.instantvoicetranslate.ui.utils.LanguageUtils
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,10 +33,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
@@ -53,6 +58,12 @@ class TranslationService : Service() {
         private const val NOTIFICATION_ID = 1
         /** Maximum number of concurrent translation requests. */
         private const val MAX_CONCURRENT_TRANSLATIONS = 3
+        /**
+         * How long stopPipeline() waits for a translation already in flight
+         * (for the segment recognized right before Stop was pressed) before
+         * giving up and finalizing the stop anyway.
+         */
+        private const val FINAL_SEGMENT_GRACE_MS = 15_000L
     }
 
     @Inject lateinit var audioCaptureManager: AudioCaptureManager
@@ -89,6 +100,13 @@ class TranslationService : Service() {
     private val nextTtsSeqNum = AtomicLong(0)
     private val ttsFlushLock = Any()
 
+    /**
+     * Translation coroutines launched directly on [serviceScope] (not as
+     * children of [pipelineJob]) so that stopping the pipeline can't cancel
+     * one mid-flight -- see [stopPipeline].
+     */
+    private val pendingTranslationJobs = ConcurrentLinkedQueue<Job>()
+
     /** Last translated segment, used as context for the next translation. */
     @Volatile
     private var lastTranslatedSegment: String? = null
@@ -107,8 +125,8 @@ class TranslationService : Service() {
                 startPipeline(intent)
             }
             ACTION_STOP -> stopPipeline()
-            ACTION_PAUSE -> pausePipeline()
-            ACTION_RESUME -> resumePipeline()
+            ACTION_PAUSE -> serviceScope.launch { pausePipeline() }
+            ACTION_RESUME -> serviceScope.launch { resumePipeline() }
         }
         return START_STICKY
     }
@@ -182,6 +200,16 @@ class TranslationService : Service() {
                     }
                 }
 
+                // Drop any warm recognizer left over from a since-changed
+                // source/target setting before acquiring -- otherwise a
+                // stale language stays resident indefinitely alongside the
+                // new one (see ConversationRecognizerPool.reconcile).
+                val desiredWarm = mutableSetOf(srcLang)
+                if (settings.targetLanguage in LanguageUtils.sourceLanguages.map { it.first }) {
+                    desiredWarm += settings.targetLanguage
+                }
+                recognizerPool.reconcile(desiredWarm)
+
                 // Acquire a warm recognizer for the source language from the
                 // pool — instant if already warm (pre-warmed at launch or
                 // kept warm from a prior conversation-direction swap),
@@ -229,26 +257,7 @@ class TranslationService : Service() {
                 ttsEngine.setVolume(settings.ttsVolume)
                 ttsEngine.setDuckingEnabled(settings.duckAudio)
 
-                // Start audio capture using the source passed via intent
-                val rawAudioFlow = audioCaptureManager.startCapture(currentAudioSource)
-
-                // Filter out audio while TTS is speaking to prevent feedback loop
-                val audioFlow = if (settings.muteMicDuringTts) {
-                    rawAudioFlow.filter { !ttsEngine.isSpeaking.value }
-                } else {
-                    rawAudioFlow
-                }
-
-                // Attach audio diagnostics if enabled in settings.
-                // Recordings saved to: /sdcard/Android/data/<pkg>/files/audio_diag/
-                audioCaptureManager.diagnostics = if (settings.audioDiagnostics) {
-                    AudioDiagnostics(this@TranslationService, settings.diagOutputDir)
-                } else {
-                    null
-                }
-
-                // Start recognition (energy-based silence detection inside recognizer)
-                recognizer.startRecognition(audioFlow)
+                beginListening(recognizer, settings)
 
                 // Collect partial results -> UI
                 launch {
@@ -279,8 +288,13 @@ class TranslationService : Service() {
                         // Capture context snapshot before launching parallel coroutine
                         val contextSegment = lastTranslatedSegment
 
-                        // Launch translation in a separate coroutine (parallel)
-                        launch {
+                        // Launch translation in a separate coroutine (parallel),
+                        // directly on serviceScope rather than as a child of
+                        // this collector -- stopPipeline() cancels pipelineJob
+                        // immediately on Stop, and a child coroutine would be
+                        // torn down mid-translation, silently dropping the
+                        // last segment the user spoke before Stop.
+                        val translationJob = serviceScope.launch {
                             translationSemaphore.acquire()
                             try {
                                 val result = activeTranslator.translate(
@@ -304,6 +318,8 @@ class TranslationService : Service() {
                                 translationSemaphore.release()
                             }
                         }
+                        pendingTranslationJobs += translationJob
+                        translationJob.invokeOnCompletion { pendingTranslationJobs -= translationJob }
                     }
                 }
             } catch (e: Exception) {
@@ -312,6 +328,36 @@ class TranslationService : Service() {
                 stopPipeline()
             }
         }
+    }
+
+    /**
+     * Starts audio capture and hands it to the recognizer. Used both by the
+     * initial [startPipeline] and by [resumePipeline] -- cancelling the
+     * recognizer's collection (as pause does, via
+     * [SpeechRecognizer.pauseAndFlush]) tears down the underlying
+     * AudioRecord too (it's released in the capture flow's `awaitClose`),
+     * so resuming needs a fresh capture, not just a fresh recognition loop.
+     */
+    private suspend fun beginListening(recognizer: SpeechRecognizer, settings: AppSettings) {
+        val rawAudioFlow = audioCaptureManager.startCapture(currentAudioSource)
+
+        // Filter out audio while TTS is speaking to prevent feedback loop
+        val audioFlow = if (settings.muteMicDuringTts) {
+            rawAudioFlow.filter { !ttsEngine.isSpeaking.value }
+        } else {
+            rawAudioFlow
+        }
+
+        // Attach audio diagnostics if enabled in settings.
+        // Recordings saved to: /sdcard/Android/data/<pkg>/files/audio_diag/
+        audioCaptureManager.diagnostics = if (settings.audioDiagnostics) {
+            AudioDiagnostics(this@TranslationService, settings.diagOutputDir)
+        } else {
+            null
+        }
+
+        // Start recognition (energy-based silence detection inside recognizer)
+        recognizer.startRecognition(audioFlow)
     }
 
     /**
@@ -339,21 +385,79 @@ class TranslationService : Service() {
         audioCaptureManager.stopCapture()
         audioCaptureManager.releaseMediaProjection()
         audioCaptureManager.diagnostics = null
-        ttsEngine.stop()
-        translationBuffer.clear()
         uiState.setRunning(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+
+        // Give a translation already in flight for the segment recognized
+        // right before Stop was pressed a bounded grace period to finish and
+        // reach TTS (its coroutine lives on serviceScope, untouched by the
+        // pipelineJob.cancel() above) before actually tearing everything
+        // down. Without this, the last thing the user said got translated
+        // but never spoken.
+        serviceScope.launch {
+            withTimeoutOrNull(FINAL_SEGMENT_GRACE_MS) {
+                pendingTranslationJobs.toList().joinAll()
+            }
+            ttsEngine.stop()
+            translationBuffer.clear()
+            stopSelf()
+        }
     }
 
-    private fun pausePipeline() {
+    private suspend fun pausePipeline() {
+        // Flush whatever the user was mid-sentence saying when they hit
+        // pause, and translate it -- same reasoning as the Stop-button fix:
+        // without this, the last thing spoken before pausing was silently
+        // dropped (recognized right as/after isPaused became true, and the
+        // segment collector below discards anything recognized while paused).
+        val flushed = activeRecognizer?.pauseAndFlush()
+        if (!flushed.isNullOrBlank()) {
+            val settings = settingsRepository.settings.first()
+            val seqNum = segmentCounter.getAndIncrement()
+            uiState.updateOriginal(flushed)
+            val contextSegment = lastTranslatedSegment
+            val activeTranslator: TextTranslator = if (settings.offlineMode) nllbTranslator else translator
+            val translationJob = serviceScope.launch {
+                try {
+                    val result = activeTranslator.translate(
+                        flushed, settings.sourceLanguage, settings.targetLanguage, contextSegment
+                    )
+                    result.onSuccess { translated ->
+                        lastTranslatedSegment = translated
+                        uiState.updateTranslated(translated)
+                        if (settings.autoSpeak) {
+                            translationBuffer[seqNum] = translated
+                            flushTtsBuffer()
+                        }
+                    }.onFailure { error ->
+                        Log.e(TAG, "Translation failed for pause-flushed segment", error)
+                        uiState.setError("Translation failed: ${error.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Translation failed for pause-flushed segment", e)
+                }
+            }
+            pendingTranslationJobs += translationJob
+            translationJob.invokeOnCompletion { pendingTranslationJobs -= translationJob }
+        }
+
         isPaused = true
         ttsEngine.stop()
+        uiState.setPaused(true)
         updateNotification(paused = true)
     }
 
-    private fun resumePipeline() {
+    private suspend fun resumePipeline() {
         isPaused = false
+        // pauseAndFlush() cancelled the recognizer's collection, which tears
+        // down the underlying AudioRecord too (released in the capture
+        // flow's awaitClose) -- resume needs a fresh capture, not just a
+        // fresh recognition loop.
+        activeRecognizer?.let { recognizer ->
+            val settings = settingsRepository.settings.first()
+            beginListening(recognizer, settings)
+        }
+        uiState.setPaused(false)
         updateNotification(paused = false)
     }
 
