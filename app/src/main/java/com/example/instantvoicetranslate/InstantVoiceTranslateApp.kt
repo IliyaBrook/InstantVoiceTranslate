@@ -38,7 +38,13 @@ class InstantVoiceTranslateApp : Application() {
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_CRITICAL) {
+        // Must be == not >=: TRIM_MEMORY_UI_HIDDEN (20) and everything above
+        // it fire on ordinary backgrounding (task switch, screen lock) with
+        // no memory pressure implied, unlike RUNNING_CRITICAL (15) which is
+        // specifically the foreground-process pressure signal. `>=` matched
+        // UI_HIDDEN too, so the pool was being trimmed and reloaded on every
+        // simple app switch instead of only under real pressure.
+        if (level == TRIM_MEMORY_RUNNING_CRITICAL) {
             Log.w(TAG, "onTrimMemory(level=$level): trimming ASR recognizer pool")
             recognizerPool.trimToMostRecentlyUsed()
         }
