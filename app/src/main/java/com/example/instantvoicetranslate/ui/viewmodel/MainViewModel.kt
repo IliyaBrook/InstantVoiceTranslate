@@ -54,6 +54,7 @@ class MainViewModel @Inject constructor(
 
     val isStarting: StateFlow<Boolean> = translationUiState.isStarting
     val isRunning: StateFlow<Boolean> = translationUiState.isRunning
+    val isPaused: StateFlow<Boolean> = translationUiState.isPaused
     val partialText: StateFlow<String> = translationUiState.partialText
     val originalText: StateFlow<String> = translationUiState.originalText
     val translatedText: StateFlow<String> = translationUiState.translatedText
@@ -123,19 +124,28 @@ class MainViewModel @Inject constructor(
                 return@launch
             }
 
-            // 3. Wait for punctuation download (started in parallel) and initialize
+            // 3. Wire punctuation into the now-ready recognizer once its
+            // download (started in parallel above) finishes -- fire-and-
+            // forget, NOT awaited here. Punctuation is optional (English
+            // sentence-casing only); its download/extraction has been
+            // observed stalling for minutes under memory/CPU pressure from
+            // the ASR+NLLB loads happening alongside it, and blocking Ready
+            // on it meant the whole app appeared hung. Users can start
+            // translating immediately now; punctuation kicks in whenever it
+            // lands, if it lands.
             if (loadPunct) {
-                modelDownloader.updateStatus(ModelStatus.Initializing("Loading punctuation model..."))
-                try {
-                    punctJob?.await()
-                    if (modelDownloader.isPunctModelReady()) {
-                        recognizer.initializePunctuation(
-                            modelDownloader.getPunctModelDir().absolutePath
-                        )
-                        Log.i(TAG, "Punctuation model pre-loaded")
+                viewModelScope.launch {
+                    try {
+                        punctJob?.await()
+                        if (modelDownloader.isPunctModelReady()) {
+                            recognizer.initializePunctuation(
+                                modelDownloader.getPunctModelDir().absolutePath
+                            )
+                            Log.i(TAG, "Punctuation model pre-loaded")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Punctuation model not available, continuing without it", e)
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Punctuation model not available, continuing without it", e)
                 }
             }
 
@@ -193,18 +203,36 @@ class MainViewModel @Inject constructor(
     }
 
     /**
+     * Releases every warm ASR recognizer before running [action] -- trades
+     * away the pool's "keep both swap directions warm" convenience (instant
+     * swap-back) for a lower peak memory footprint, so the upcoming model
+     * load never has to coexist with whatever's already resident. Called
+     * unconditionally before every start/swap (not just when memory happens
+     * to be low): on memory-constrained devices, loading a new ASR model on
+     * top of an already-warm one was observed reliably tipping the whole
+     * system into a low-memory-killer thrashing cascade, and the full-reload
+     * cost this trades in for (a few seconds) was confirmed an acceptable
+     * default rather than something to ask about every time.
+     */
+    fun releaseWarmRecognizersThen(action: () -> Unit) {
+        recognizerPool.releaseAll()
+        action()
+    }
+
+    /**
      * Flips source <-> target language for a conversation-direction swap.
      * Only enabled when the current target is itself ASR-capable (otherwise
      * there'd be no recognizer model to hear the reply) -- callers should
      * gate the UI control on that same condition.
      *
      * If a translation session is running on the microphone source, restarts
-     * it so the new pairing takes effect immediately; the restart is fast
-     * because the target language's ASR model was already pre-warmed by
-     * [preloadPipelineComponents]. System-audio sessions are left running
-     * with the old pairing (restarting would require re-requesting
-     * MediaProjection consent via an Activity), taking effect on the next
-     * manual start.
+     * it so the new pairing takes effect immediately -- the restart pays a
+     * full model reload (a few seconds), since [releaseWarmRecognizersThen]'s
+     * reasoning applies here too: the previous direction's model is released
+     * before the new one loads, rather than kept warm alongside it. System-
+     * audio sessions are left running with the old pairing (restarting would
+     * require re-requesting MediaProjection consent via an Activity), taking
+     * effect on the next manual start.
      */
     fun swapLanguages() {
         val current = settings.value
@@ -226,13 +254,19 @@ class MainViewModel @Inject constructor(
                 // Intents at the service (fire-and-forget) -- wait for the
                 // stop to actually land so the START intent below can't race
                 // a still-in-flight stopSelf() from the previous session.
+                // This also guarantees the recognizer released just below
+                // isn't still actively processing audio when released.
                 withTimeoutOrNull(2_000) { isRunning.first { !it } }
             }
 
             settingsRepository.swapLanguages()
 
-            // Pre-warm the new source (almost always already warm as the
-            // previous target) so a subsequent start is instant either way.
+            // Release the previous direction's warm recognizer before
+            // loading the new one instead of keeping both resident -- see
+            // releaseWarmRecognizersThen's doc for why. Safe here: any
+            // running session was already stopped and waited on above.
+            recognizerPool.releaseAll()
+
             val newSrcLang = current.targetLanguage
             try {
                 modelDownloader.ensureModelAvailable(newSrcLang)
@@ -295,6 +329,26 @@ class MainViewModel @Inject constructor(
     fun stopTranslation() {
         val intent = Intent(application, TranslationService::class.java).apply {
             action = TranslationService.ACTION_STOP
+        }
+        application.startService(intent)
+    }
+
+    /**
+     * Pauses recognition/TTS without tearing down the pipeline (models,
+     * audio capture, and the foreground session all stay alive) so a quick
+     * tap can resume exactly where it left off -- unlike [stopTranslation],
+     * which ends the session.
+     */
+    fun pauseTranslation() {
+        val intent = Intent(application, TranslationService::class.java).apply {
+            action = TranslationService.ACTION_PAUSE
+        }
+        application.startService(intent)
+    }
+
+    fun resumeTranslation() {
+        val intent = Intent(application, TranslationService::class.java).apply {
+            action = TranslationService.ACTION_RESUME
         }
         application.startService(intent)
     }
