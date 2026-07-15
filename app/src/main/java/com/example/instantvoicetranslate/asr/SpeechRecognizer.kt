@@ -26,6 +26,15 @@ interface SpeechRecognizer {
     /** Stop ongoing recognition. */
     fun stopRecognition()
 
+    /**
+     * Stops recognition and returns whatever was still being transcribed as
+     * a final segment (or null if nothing was pending), WITHOUT emitting it
+     * to [recognizedSegments]. For use by pause: that flow's collector
+     * drops anything recognized while paused, which would otherwise
+     * silently discard this in-flight utterance too.
+     */
+    suspend fun pauseAndFlush(): String? = null
+
     /** Initialize punctuation restoration model (optional, no-op by default). */
     fun initializePunctuation(modelDir: String) {}
 

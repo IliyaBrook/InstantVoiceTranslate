@@ -12,9 +12,11 @@ import com.k2fsa.sherpa.onnx.OnlinePunctuation
 import com.k2fsa.sherpa.onnx.OnlinePunctuationConfig
 import com.k2fsa.sherpa.onnx.OnlinePunctuationModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
@@ -95,6 +97,16 @@ class SherpaOnnxRecognizer : SpeechRecognizer {
     private var punctuation: OnlinePunctuation? = null
     private var recognitionScope: CoroutineScope? = null
     private var recognitionJob: Job? = null
+
+    /**
+     * Set by [pauseAndFlush] just before cancelling, so the recognition
+     * coroutine's finally block delivers the flushed text here instead of
+     * emitting it to [recognizedSegments]. That flow is gated on "not
+     * paused" by its collector -- by the time a normally-emitted segment
+     * got there, isPaused would already be true, silently dropping it.
+     */
+    @Volatile
+    private var pendingFlushDeferred: CompletableDeferred<String?>? = null
 
     override suspend fun initialize(modelDir: String, language: String): Unit = withContext(Dispatchers.IO) {
         try {
@@ -293,6 +305,34 @@ class SherpaOnnxRecognizer : SpeechRecognizer {
             } catch (e: Exception) {
                 Log.e(TAG, "Recognition error", e)
             } finally {
+                // Flush whatever's still buffered so far. Stop is commonly
+                // pressed right after the user finishes speaking, before
+                // sustained silence/endpoint detection above ever gets a
+                // chance to fire -- without this, that last utterance is
+                // simply discarded instead of being translated. NonCancellable
+                // because this coroutine's job is normally already cancelling
+                // by the time we get here (see stopRecognition()), and a plain
+                // suspend call would otherwise throw immediately.
+                withContext(NonCancellable) {
+                    var flushed: String? = null
+                    try {
+                        val currentText = rec.getResult(stream).text.trim()
+                        val fullText = combineText(emittedText, currentText)
+                        if (fullText.isNotBlank()) {
+                            flushed = applyPunctuation(fullText)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to flush final segment", e)
+                    }
+                    val flushDeferred = pendingFlushDeferred
+                    if (flushDeferred != null) {
+                        pendingFlushDeferred = null
+                        flushDeferred.complete(flushed)
+                    } else if (flushed != null) {
+                        Log.i(TAG, "Stop: flushing final segment: $flushed")
+                        _recognizedSegments.emit(flushed)
+                    }
+                }
                 stream.release()
             }
         }
@@ -355,6 +395,18 @@ class SherpaOnnxRecognizer : SpeechRecognizer {
         recognitionScope?.cancel()
         recognitionScope = null
         _partialText.value = ""
+    }
+
+    override suspend fun pauseAndFlush(): String? {
+        val job = recognitionJob ?: return null
+        val deferred = CompletableDeferred<String?>()
+        pendingFlushDeferred = deferred
+        recognitionJob = null
+        job.cancel()
+        recognitionScope?.cancel()
+        recognitionScope = null
+        _partialText.value = ""
+        return deferred.await()
     }
 
     override fun release() {
