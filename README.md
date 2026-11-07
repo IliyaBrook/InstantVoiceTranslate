@@ -1,5 +1,16 @@
 # Instant Voice Translate
 
+> [!IMPORTANT]
+> **Archived — no longer maintained as of November 7, 2026.**
+>
+> Unfortunately, I no longer have the time to maintain this project, and I no longer have a personal interest in continuing its development.
+>
+> There will be no further releases, bug fixes, security updates, or support from me. Existing issues and pull requests remain available for reference, but I will no longer review or merge contributions here.
+>
+> The source and documentation are preserved for reference. The instructions below describe the project before archival; compatibility with future Android versions, translation services, and model downloads is not guaranteed. If you would like to continue development, you are welcome to fork the repository under its [MIT license](LICENSE) and maintain your own version.
+>
+> Thank you to everyone who used the app, reported issues, and contributed.
+
 Android app for real-time voice translation. Captures audio from microphone or system audio, recognizes speech locally
 on-device via Sherpa-ONNX, translates text online (Yandex API) or offline (NLLB-200), and speaks the result via
 Android TTS.
